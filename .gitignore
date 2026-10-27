@@ -1,3 +1,6 @@
 /build/
 /.cache/
 *.swp
+
+.idea/
+cmake-build-*/
