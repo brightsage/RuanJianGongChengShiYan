@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>学生成长中台 · 接口测试台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>学生成长中台</h1>
+    <p>开发接口测试台</p>
+  </header>
+  <main>
+    <section>
+      <h2>模块</h2>
+      <p id="catalog-status">正在读取模块列表…</p>
+      <div id="modules" class="modules"></div>
+    </section>
+    <section>
+      <h2>发送请求</h2>
+      <form id="request-form">
+        <div class="request-line">
+          <label>方法 <select id="method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></label>
+          <label>路径 <input id="path" value="/api/health" required></label>
+        </div>
+        <label>请求头（每行一个，格式：名称: 值）<textarea id="headers" rows="3" placeholder="Content-Type: application/json"></textarea></label>
+        <label>请求体<textarea id="body" rows="5" placeholder="可留空"></textarea></label>
+        <button type="submit">发送</button>
+      </form>
+      <h3>响应 <span id="response-status"></span></h3>
+      <pre id="response-body">尚未发送请求。</pre>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
