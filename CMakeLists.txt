@@ -11,6 +11,8 @@ add_library(platform_core
     src/modules/data_governance/module.cpp
     src/modules/student_profile/module.cpp
     src/modules/academic_alerts/module.cpp
+    src/modules/academic_alerts/alerts_api.cpp
+    src/modules/academic_alerts/alerts_store.cpp
     src/modules/career_recommendation/module.cpp
     src/modules/data_services/module.cpp
 )

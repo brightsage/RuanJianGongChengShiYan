@@ -3,7 +3,7 @@
 > **负责人**：刘嘉庚（分支 `feature/LiuJiaGeng`）
 > **路由前缀**：`/api/modules/academic-alerts/`
 > **需求依据**：《实验一 需求分析与迭代规划》§2.3.5（用例 UC-AA-01～UC-AA-07）、§3.3（关键用例规约）、§5（非功能需求）
-> **代码位置**：`src/modules/academic_alerts/module.cpp`
+> **代码位置**：`src/modules/academic_alerts/`（结构见 1.1）
 
 ---
 
@@ -20,6 +20,16 @@ M2 指标值（综合成绩、挂科门数、学分完成率、出勤率）
 
 - **上游依赖**：M2 数据治理产出的指标值（当前用内存种子数据模拟，接口已按指标名解耦）
 - **下游消费**：M3 画像可引用预警状态作为标签；M6 数据服务可将预警统计封装为对外 API
+
+### 1.1 代码结构
+
+| 文件 | 职责 | Java 里的对应 |
+| --- | --- | --- |
+| `module.cpp` | 只做模块与路由注册（9 条路由） | 配置类 / `@RequestMapping` 声明 |
+| `alerts_api.cpp` | 9 个 handler：参数校验 + JSON 组装 | `@RestController` |
+| `alerts_store.cpp` | 种子数据、查询、规则判定、时间与状态 | Repository + Service |
+| `alerts.hpp` | 领域模型与函数声明 | 实体 + 接口 |
+| `json_util.hpp` | JSON 转义/解析、查询串解析（header-only） | Jackson 的极小替代品 |
 
 ---
 
@@ -183,7 +193,7 @@ GET /api/modules/academic-alerts/students/2021007/trend
 | `Alert` | `id`、`student_id`、`rule_id`、`level`、`status`、`created`、`assignee`、`metric_value`、`interventions[]` | 触发时快照指标值 |
 | `Intervention` | `at`、`action`、`measures`、`note`、`by` | 认领与每次处置都留痕 |
 
-数据放在 `store()` 的函数内静态变量里，进程重启即重置——这是实验阶段的刻意选择，接口层已与存储解耦，替换为数据库时只需改 `store()` 的读写。
+数据放在 `alerts_store.cpp` 的静态变量里，进程重启即重置——这是实验阶段的刻意选择，接口层已与存储解耦，替换为数据库时只需改 `alerts_store.cpp` 的读写。
 
 ---
 
