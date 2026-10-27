@@ -40,7 +40,14 @@ def main():
         status, body = request(port, "GET", "/api/modules")
         assert status == 200
         modules = json.loads(body)
-        assert len(modules) == 6 and all(module["routes"] == [] for module in modules)
+        assert len(modules) == 6
+        assert len({module["id"] for module in modules}) == 6
+        routes = [
+            (module["id"], route["method"], route["path"])
+            for module in modules
+            for route in module["routes"]
+        ]
+        assert len(routes) == len(set(routes)), "路由目录里出现重复的 方法+路径"
         status, body = request(port, "GET", "/")
         assert status == 200 and "接口测试台" in body
         status, body = request(port, "GET", "/api/modules/student-profile/123")
