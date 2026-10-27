@@ -1,0 +1,16 @@
+# 忽略IDE文件
+.idea/
+.vscode/
+*.suo
+*.sln
+
+# 忽略编译目录
+cmake-build-*/
+build/
+*.o
+*.a
+*.exe
+
+# 忽略临时文件
+*.log
+*.tmp
