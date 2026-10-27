@@ -1,9 +1,14 @@
 #include "http_server.hpp"
 
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cerrno>
@@ -17,6 +22,32 @@
 
 namespace platform {
 namespace {
+#ifdef _WIN32
+using socket_t = SOCKET;
+constexpr socket_t invalid_socket = INVALID_SOCKET;
+
+void close_socket(socket_t fd) { ::closesocket(fd); }
+
+void ensure_network() {
+    static const int started = [] {
+        WSADATA data{};
+        return ::WSAStartup(MAKEWORD(2, 2), &data);
+    }();
+    (void)started;
+}
+
+bool interrupted() { return ::WSAGetLastError() == WSAEINTR; }
+#else
+using socket_t = int;
+constexpr socket_t invalid_socket = -1;
+
+void close_socket(int fd) { ::close(fd); }
+
+void ensure_network() {}
+
+bool interrupted() { return errno == EINTR; }
+#endif
+
 constexpr std::size_t max_header_bytes = 16 * 1024;
 constexpr std::size_t max_body_bytes = 1024 * 1024;
 
@@ -36,17 +67,21 @@ std::string status_text(int status) {
     }
 }
 
-void send_all(int fd, const std::string& data) {
+void send_all(socket_t fd, const std::string& data) {
     std::size_t sent = 0;
     while (sent < data.size()) {
+#ifdef _WIN32
+        const int count = ::send(fd, data.data() + sent, static_cast<int>(data.size() - sent), 0);
+#else
         const auto count = ::send(fd, data.data() + sent, data.size() - sent, MSG_NOSIGNAL);
-        if (count < 0 && errno == EINTR) continue;
+#endif
+        if (count < 0 && interrupted()) continue;
         if (count <= 0) return;
         sent += static_cast<std::size_t>(count);
     }
 }
 
-void send_response(int fd, const Response& response) {
+void send_response(socket_t fd, const Response& response) {
     std::string head = "HTTP/1.1 " + std::to_string(response.status) + " " +
                        status_text(response.status) + "\r\n";
     head += "Content-Type: " + response.content_type + "\r\n";
@@ -91,7 +126,7 @@ Response static_file(const std::string& path) {
     return {200, type, std::string(std::istreambuf_iterator<char>(file), {})};
 }
 
-Response receive_and_handle(int fd, const App& app) {
+Response receive_and_handle(socket_t fd, const App& app) {
     std::string raw;
     char buffer[4096];
     std::size_t split = std::string::npos;
@@ -163,35 +198,43 @@ Response receive_and_handle(int fd, const App& app) {
 }  // namespace
 
 void serve(const App& app, std::uint16_t port) {
-    const int listener = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (listener < 0) throw std::runtime_error("socket failed");
+    ensure_network();
+    const socket_t listener = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (listener == invalid_socket) throw std::runtime_error("socket failed");
     int reuse = 1;
-    ::setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    ::setsockopt(listener, SOL_SOCKET, SO_REUSEADDR,
+                 reinterpret_cast<const char*>(&reuse), sizeof(reuse));
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = htons(port);
     if (::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0 ||
         ::listen(listener, 16) < 0) {
-        ::close(listener);
+        close_socket(listener);
         throw std::runtime_error("bind or listen failed");
     }
     std::cout << "Open http://127.0.0.1:" << port << "/\n" << std::flush;
     while (true) {
-        const int client = ::accept(listener, nullptr, nullptr);
-        if (client < 0) {
-            if (errno == EINTR) continue;
-            ::close(listener);
+        const socket_t client = ::accept(listener, nullptr, nullptr);
+        if (client == invalid_socket) {
+            if (interrupted()) continue;
+            close_socket(listener);
             throw std::runtime_error("accept failed");
         }
+#ifdef _WIN32
+        DWORD timeout = 5000;
+        ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO,
+                     reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+#else
         timeval timeout{5, 0};
         ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
         try {
             send_response(client, receive_and_handle(client, app));
         } catch (const std::exception& error) {
             send_response(client, error_response(500, error.what()));
         }
-        ::close(client);
+        close_socket(client);
     }
 }
 }  // namespace platform

@@ -19,6 +19,9 @@ target_compile_options(platform_core PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(platform_server src/main.cpp src/http_server.cpp)
 target_link_libraries(platform_server PRIVATE platform_core)
+if(WIN32)
+    target_link_libraries(platform_server PRIVATE ws2_32)
+endif()
 target_compile_definitions(platform_server PRIVATE PLATFORM_WEB_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/web")
 target_compile_options(platform_server PRIVATE -Wall -Wextra -Wpedantic)
 
