@@ -1,6 +1,6 @@
 # M4 学业分析与预警 · 模块说明
 
-> **负责人**：刘家庚（分支 `feature/LiuJiaGeng`）
+> **负责人**：刘嘉庚（分支 `feature/LiuJiaGeng`）
 > **路由前缀**：`/api/modules/academic-alerts/`
 > **需求依据**：《实验一 需求分析与迭代规划》§2.3.5（用例 UC-AA-01～UC-AA-07）、§3.3（关键用例规约）、§5（非功能需求）
 > **代码位置**：`src/modules/academic_alerts/module.cpp`
