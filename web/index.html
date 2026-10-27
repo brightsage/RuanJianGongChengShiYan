@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>数据治理模块测试页</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .btn { padding: 8px 16px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        #result { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>数据治理与标准化模块测试</h1>
+    <button class="btn" onclick="listRules()">获取质量规则列表</button>
+    <button class="btn" onclick="getStudent()">查询学生1001主数据</button>
+    <button class="btn" onclick="recalc()">触发指标重算</button>
+    <button class="btn" onclick="getReport()">获取质量报告</button>
+    <div id="result">点击按钮测试接口...</div>
+
+    <script>
+        const base = '/api/modules/data-governance';
+        async function callApi(path, method='GET') {
+            const res = await fetch(base + path, {method});
+            const data = await res.json();
+            document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+        }
+        function listRules() { callApi('/quality-rules'); }
+        function getStudent() { callApi('/student-master/1001'); }
+        function recalc() { callApi('/recalculate', 'POST'); }
+        function getReport() { callApi('/quality-report'); }
+    </script>
+</body>
+</html>
