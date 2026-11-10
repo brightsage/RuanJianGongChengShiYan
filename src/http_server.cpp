@@ -51,9 +51,11 @@ std::string status_text(int status) {
         case 400: return "Bad Request";
         case 404: return "Not Found";
         case 405: return "Method Not Allowed";
+        case 409: return "Conflict";
         case 413: return "Payload Too Large";
         case 500: return "Internal Server Error";
         case 501: return "Not Implemented";
+        case 503: return "Service Unavailable";
         default: return "Response";
     }
 }
@@ -129,6 +131,12 @@ Response static_file(const std::string& path) {
     if (path == "/") {
         filename = "index.html";
         type = "text/html; charset=utf-8";
+    } else if (path == "/career") {
+        filename = "career.html";
+        type = "text/html; charset=utf-8";
+    } else if (path == "/career.js") {
+        filename = "career.js";
+        type = "text/javascript; charset=utf-8";
     } else if (path == "/app.js") {
         filename = "app.js";
         type = "text/javascript; charset=utf-8";
@@ -209,7 +217,8 @@ Response receive_and_handle(socket_handle fd, const App& app) {
         if (count <= 0) return error_response(400, "incomplete body");
         request.body.append(buffer, static_cast<std::size_t>(count));
     }
-    if (request.path == "/" || request.path == "/app.js" || request.path == "/style.css") {
+    if (request.path == "/" || request.path == "/career" || request.path == "/career.js" ||
+        request.path == "/app.js" || request.path == "/style.css") {
         if (request.method != "GET") return error_response(405, "method not allowed");
         return static_file(request.path);
     }

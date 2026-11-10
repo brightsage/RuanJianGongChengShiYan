@@ -20,16 +20,19 @@
     },
     {
       "name": "linux-debug",
-      "displayName": "Linux / Debug",
+      "displayName": "Linux / macOS / Debug",
       "generator": "Unix Makefiles",
-      "binaryDir": "${sourceDir}/build/linux-debug",
+      "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       },
       "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
+        "type": "inList",
+        "string": "${hostSystemName}",
+        "list": [
+          "Linux",
+          "Darwin"
+        ]
       }
     }
   ],

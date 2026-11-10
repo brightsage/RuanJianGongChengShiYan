@@ -21,3 +21,12 @@ button:hover { background: #0e4d89; }
 .route { display: block; margin-top: .6rem; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 pre { background: #102033; color: #e8f1fa; border-radius: .5rem; padding: 1rem; min-height: 5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .request-line { grid-template-columns: 1fr; gap: 0; } }
+.career fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.career-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .75rem; }
+.career .requirement { align-items: center; }
+.career-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.career-checks { align-items: baseline; margin-bottom: .8rem; }
+.career-checks input { display: inline; width: auto; }
+.career article { overflow-wrap: anywhere; }
+.career article p { margin-top: .4rem; }
+.career button:disabled { opacity: .6; cursor: default; }

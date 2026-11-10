@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 project(student_growth_platform LANGUAGES C CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -33,6 +34,7 @@ add_library(platform_core
     src/modules/student_profile/sqlite_repository.cpp
     src/modules/academic_alerts/module.cpp
     src/modules/career_recommendation/module.cpp
+    src/modules/career_recommendation/catalog.cpp
     src/modules/data_services/module.cpp
 )
 target_include_directories(platform_core PUBLIC include ${CMAKE_CURRENT_SOURCE_DIR}/src)

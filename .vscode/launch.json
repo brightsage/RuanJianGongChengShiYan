@@ -17,7 +17,7 @@
       "name": "运行 platform_server (Linux)",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/build/linux-debug/platform_server",
+      "program": "${workspaceFolder}/build/platform_server",
       "args": [
         "8080"
       ],

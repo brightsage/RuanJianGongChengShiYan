@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>职业发展推荐 · 就业指导中心</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/career.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>职业发展推荐</h1>
+    <p>就业指导中心 · 本地演示</p>
+  </header>
+  <main class="career">
+    <nav><a href="/">返回平台首页</a></nav>
+    <section>
+      <h2 id="job-heading">新增岗位</h2>
+      <form id="job-form">
+        <fieldset id="job-fields" disabled>
+          <div class="career-grid">
+            <label>岗位名称<input name="title" required maxlength="200"></label>
+            <label>行业<input name="industry" required maxlength="120"></label>
+            <label>岗位类型
+              <select name="job_type">
+                <option value="campus">校招</option>
+                <option value="internship">实习</option>
+              </select>
+            </label>
+          </div>
+          <label>岗位说明<textarea name="description" rows="3" required maxlength="4000"></textarea></label>
+          <h3>能力要求</h3>
+          <div id="requirements"></div>
+          <div class="career-actions">
+            <button type="button" id="add-requirement">添加能力项</button>
+            <button type="submit" id="save-job">保存为草稿</button>
+            <button type="button" id="cancel-edit" hidden>取消编辑</button>
+          </div>
+        </fieldset>
+      </form>
+      <p id="jobs-message" role="status"></p>
+    </section>
+    <section>
+      <h2>岗位目录</h2>
+      <div id="jobs" class="modules"></div>
+    </section>
+    <section>
+      <h2>推荐策略</h2>
+      <form id="strategy-form">
+        <fieldset id="strategy-fields" disabled>
+          <div class="career-grid">
+            <label>匹配算法
+              <select name="algorithm">
+                <option value="pass_and_proximity">加权达标与接近度</option>
+                <option value="weighted_pass">加权达标</option>
+              </select>
+            </label>
+            <label>最低推荐分<input name="min_score" type="number" min="0" max="100" step="any" value="50" required></label>
+            <label>达标权重<input name="pass_weight" type="number" min="0" max="100" step="any" value="60" required></label>
+            <label>接近度权重<input name="proximity_weight" type="number" min="0" max="100" step="any" value="40" required></label>
+          </div>
+          <label>允许行业（每行一个，留空表示不限）
+            <textarea name="allowed_industries" rows="2"></textarea>
+          </label>
+          <div class="career-grid career-checks">
+            <span>允许岗位类型（均未勾选表示不限）</span>
+            <label><input name="allowed_job_types" type="checkbox" value="campus"> 校招</label>
+            <label><input name="allowed_job_types" type="checkbox" value="internship"> 实习</label>
+          </div>
+          <button type="submit">保存并生效</button>
+        </fieldset>
+      </form>
+      <p id="strategy-message" role="status"></p>
+    </section>
+  </main>
+  <template id="requirement-template">
+    <div class="career-grid requirement">
+      <label>能力标识<input name="competency_code" required maxlength="120" placeholder="例如 programming"></label>
+      <label>达标分<input name="threshold" type="number" max="100" step="any" value="80" required></label>
+      <label>权重<input name="weight" type="number" max="100" step="any" value="1" required></label>
+      <button type="button">移除此项</button>
+    </div>
+  </template>
+</body>
+</html>
