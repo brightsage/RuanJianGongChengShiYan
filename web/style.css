@@ -34,3 +34,7 @@ pre { background: #102033; color: #e8f1fa; border-radius: .5rem; padding: 1rem; 
 .career summary { margin: .75rem 0; cursor: pointer; }
 .career nav { align-items: center; }
 .career #career-message:empty { display: none; }
+#outcomes-tables { grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); align-items: start; }
+#outcomes-tables table { width: 100%; border-collapse: collapse; overflow-wrap: anywhere; }
+#outcomes-tables caption { text-align: left; font-weight: 600; margin-bottom: .5rem; }
+#outcomes-tables th, #outcomes-tables td { text-align: left; border-bottom: 1px solid #dce3ed; padding: .45rem; }

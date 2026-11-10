@@ -87,6 +87,18 @@
       </form>
       <p id="strategy-message" role="status"></p>
     </section>
+    <section id="outcomes-view" hidden>
+      <h2>就业去向统计</h2>
+      <form id="outcomes-form">
+        <div class="career-grid">
+          <label>起始毕业年份<input name="from_year" type="number" min="1900" max="2199" placeholder="不限"></label>
+          <label>截止毕业年份<input name="to_year" type="number" min="1900" max="2199" placeholder="不限"></label>
+        </div>
+        <button type="submit">查询统计</button>
+      </form>
+      <p id="outcomes-message" role="status"></p>
+      <div id="outcomes-tables" class="modules"></div>
+    </section>
     <section id="student-view" hidden>
       <h2>我的推荐岗位</h2>
       <form id="recommendation-form">

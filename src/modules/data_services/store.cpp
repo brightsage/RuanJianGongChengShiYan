@@ -188,7 +188,8 @@ Store::Store(const AppOptions& options) : clock_(options.clock) {
         role("data_admin", "数据管理员", "all", {"services.publish", "grants.approve", "services.read"});
         role("college_admin", "院系管理员", "college", {"grants.apply", "services.read"});
         role("third_party", "第三方应用", "college", {"grants.apply", "services.read"});
-        role("career_center", "就业指导中心", "all", {"career.jobs.read", "career.jobs.write", "career.jobs.publish", "career.strategy.write"});
+        role("career_center", "就业指导中心", "all", {"career.jobs.read", "career.jobs.write",
+            "career.jobs.publish", "career.strategy.write", "career.outcomes.read"});
         role("student", "学生", "self", {"career.recommendations.read"});
         role("counselor", "辅导员", "class", {});
         for (const auto& field : {"student_no", "id_card", "phone", "name"})

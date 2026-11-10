@@ -38,6 +38,7 @@ add_library(platform_core
     src/modules/career_recommendation/catalog.cpp
     src/modules/career_recommendation/recommendations.cpp
     src/modules/career_recommendation/profile.cpp
+    src/modules/career_recommendation/outcomes.cpp
     src/modules/data_services/module.cpp
     src/modules/data_services/store.cpp
     src/modules/data_services/security.cpp

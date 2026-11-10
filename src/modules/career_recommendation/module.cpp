@@ -1,6 +1,7 @@
 #include "platform/modules.hpp"
 
 #include "catalog.hpp"
+#include "outcomes.hpp"
 #include "recommendations.hpp"
 #include "platform/security.hpp"
 
@@ -76,8 +77,8 @@ void register_career_recommendation(App& app) {
     app.add_module_route(module_id, "GET", "/mode", [demo_enabled](const Request&) {
         return json_response(200, Json::Object{{"demo", demo_enabled}});
     });
-    const auto add = [&](const char* method, const char* path, const char* permission,
-                         const char* action, const char* resource, auto handle) {
+    const auto add_manager = [&](const char* method, const char* path, const char* permission,
+                                 const char* action, const char* resource, auto handle) {
         app.add_module_route(module_id, method, path,
             [demo_enabled, access, permission, action, resource, handle](const Request& request) -> Response {
                 try {
@@ -87,16 +88,14 @@ void register_career_recommendation(App& app) {
                             return error_response(503, "职业推荐演示未启用或数据库未隔离");
                         }
                         Database db(demo_database);
-                        career::Catalog catalog(db);
-                        return handle(catalog, request, event);
+                        return handle(db, request, event, demo_enabled);
                     }
                     if (!access) return error_response(503, "统一权限服务不可用");
                     const auto actor = access->authorize(request, permission, security::Scope{});
                     Response response;
                     const auto operation = [&](sqlite3* connection) {
                         Database db(*connection);
-                        career::Catalog catalog(db);
-                        response = handle(catalog, request, event);
+                        response = handle(db, request, event, demo_enabled);
                     };
                     if (*action) access->audited_write(actor, event, operation);
                     else access->with_connection(operation);
@@ -112,6 +111,18 @@ void register_career_recommendation(App& app) {
                 }
             });
     };
+    const auto add = [&](const char* method, const char* path, const char* permission,
+                         const char* action, const char* resource, auto handle) {
+        add_manager(method, path, permission, action, resource,
+            [handle](Database& db, const Request& request, security::AuditEvent& event, bool) {
+                career::Catalog catalog(db);
+                return handle(catalog, request, event);
+            });
+    };
+    add_manager("GET", "/outcomes", "career.outcomes.read", "", "",
+        [](Database& db, const Request& request, security::AuditEvent&, bool demo) {
+            return json_response(200, career::employment_outcomes(db, request.query, demo));
+        });
 
     add("GET", "/jobs", "career.jobs.read", "", "",
         [](career::Catalog& catalog, const Request&, security::AuditEvent&) {

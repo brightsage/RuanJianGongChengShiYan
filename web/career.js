@@ -213,6 +213,10 @@ const login = document.querySelector("#career-login");
 const mode = document.querySelector("#career-mode");
 const message = document.querySelector("#career-message");
 const logout = document.querySelector("#career-logout");
+const outcomesView = document.querySelector("#outcomes-view");
+const outcomesForm = document.querySelector("#outcomes-form");
+const outcomesMessage = document.querySelector("#outcomes-message");
+const outcomesTables = document.querySelector("#outcomes-tables");
 const studentView = document.querySelector("#student-view");
 const recommendationForm = document.querySelector("#recommendation-form");
 const recommendationList = document.querySelector("#recommendation-list");
@@ -220,6 +224,7 @@ const recommendationMessage = document.querySelector("#recommendation-message");
 const demoStudent = recommendationForm.elements.demo_student;
 const securityPrefix = "/api/modules/data-services";
 let studentViewVersion = 0;
+let outcomesVersion = 0;
 
 function resetRecommendations() {
   studentViewVersion += 1;
@@ -227,13 +232,21 @@ function resetRecommendations() {
   recommendationMessage.textContent = "";
 }
 
-function showView(view) {
+function showView(view, permissions = []) {
   login.hidden = demo || !!token;
   logout.hidden = !token;
   studentView.hidden = view !== "student";
   resetRecommendations();
-  for (const section of document.querySelectorAll("[data-manager]")) section.hidden = view !== "manager";
-  if (view === "manager") {
+  const managesCatalog = view === "manager" && (demo || permissions.some((code) =>
+    code.startsWith("career.jobs.") || code === "career.strategy.write"));
+  for (const section of document.querySelectorAll("[data-manager]")) section.hidden = !managesCatalog;
+  outcomesView.hidden = view !== "manager" || (!demo && !permissions.includes("career.outcomes.read"));
+  outcomesVersion += 1;
+  outcomesForm.reset();
+  outcomesForm.querySelector("button").disabled = false;
+  outcomesMessage.textContent = "";
+  outcomesTables.replaceChildren();
+  if (managesCatalog) {
     jobFields.disabled = true;
     strategyFields.disabled = true;
     editJob();
@@ -260,9 +273,9 @@ document.querySelector("#login-form").addEventListener("submit", async (event) =
       mode.textContent = "学生 · 本人推荐";
       showView("student");
     } else if (identity.scope.type === "all" && identity.permissions.some((code) =>
-      code.startsWith("career.jobs.") || code === "career.strategy.write")) {
+      code.startsWith("career.jobs.") || code === "career.strategy.write" || code === "career.outcomes.read")) {
       mode.textContent = "就业指导中心 · 正式模式";
-      showView("manager");
+      showView("manager", identity.permissions);
     } else {
       message.textContent = "当前账号没有职业推荐权限";
       showView("");
@@ -288,6 +301,68 @@ logout.addEventListener("click", async () => {
     logout.disabled = false;
     mode.textContent = "正式模式 · 请登录";
     showView("");
+  }
+});
+
+function outcomesTable(title, columns, rows) {
+  const table = document.createElement("table");
+  table.createCaption().textContent = title;
+  const headings = table.createTHead().insertRow();
+  for (const label of columns) {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    cell.textContent = label;
+    headings.append(cell);
+  }
+  const body = table.createTBody();
+  for (const values of rows) {
+    const row = body.insertRow();
+    for (const value of values) row.insertCell().textContent = value;
+  }
+  return table;
+}
+
+outcomesForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const version = outcomesVersion;
+  const submit = outcomesForm.querySelector("button");
+  const params = new URLSearchParams();
+  for (const [name, value] of new FormData(outcomesForm)) {
+    if (value !== "") params.set(name, value);
+  }
+  submit.disabled = true;
+  outcomesMessage.textContent = "正在查询…";
+  outcomesTables.replaceChildren();
+  try {
+    const result = await api(params.size ? "/outcomes?" + params : "/outcomes");
+    if (version !== outcomesVersion) return;
+    const sample = result.source === "demo" ? "演示数据 · " : "";
+    if (!result.graduates) {
+      outcomesMessage.textContent = sample + "该年份范围暂无毕业生记录";
+      return;
+    }
+    outcomesMessage.textContent = sample + `毕业生 ${result.graduates} 人，已就业 ${result.employed} 人`;
+    const labels = {
+      employed: "就业", further_study: "升学", abroad: "出国（境）",
+      unemployed: "待就业", other: "其他", unknown: "未登记",
+    };
+    const percentage = (value) => value.toFixed(2) + "%";
+    outcomesTables.append(outcomesTable("去向分布", ["去向", "人数", "占比"],
+      result.outcome_distribution.map((item) => [labels[item.category], item.count, percentage(item.percent)])));
+    if (result.industry_distribution.length) {
+      outcomesTables.append(outcomesTable("就业行业分布", ["行业", "人数", "占比"],
+        result.industry_distribution.map((item) => [item.industry ?? "未登记行业", item.count, percentage(item.percent)])));
+    } else {
+      const empty = document.createElement("p");
+      empty.textContent = "该年份范围暂无已就业记录";
+      outcomesTables.append(empty);
+    }
+    outcomesTables.append(outcomesTable("历年就业趋势", ["毕业年份", "毕业生", "已就业", "就业占比"],
+      result.trend.map((item) => [item.year, item.graduates, item.employed, percentage(item.employment_percent)])));
+  } catch (error) {
+    if (version === outcomesVersion) outcomesMessage.textContent = error.message;
+  } finally {
+    if (version === outcomesVersion) submit.disabled = false;
   }
 });
 

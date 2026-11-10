@@ -71,6 +71,7 @@ def platform_smoke(directory):
             ("GET", PREFIX + "/jobs"), ("POST", PREFIX + "/jobs"),
             ("PUT", PREFIX + "/jobs/:id"), ("PUT", PREFIX + "/jobs/:id/status"),
             ("GET", PREFIX + "/strategy"), ("PUT", PREFIX + "/strategy"),
+            ("GET", PREFIX + "/outcomes"),
         } <= {(route["method"], route["path"]) for route in career["routes"]}
         status, body = request(port, "GET", "/")
         assert status == 200 and "接口测试台" in body and 'href="/career"' in body
@@ -241,6 +242,30 @@ def recommendation_smoke(directory):
         assert student(port, "GET", rec + "/reason") == dict(reason, feedback=feedback)
 
 
+def outcomes_demo_smoke(directory):
+    with server(directory, demo=True) as port:
+        result = career_api(port, "GET", "/outcomes")
+        assert result["source"] == "demo"
+        assert (result["graduates"], result["employed"]) == (8, 4)
+        assert {row["industry"]: row["percent"] for row in result["industry_distribution"]} == {
+            None: 25, "信息技术": 50, "制造业": 25,
+        }
+        assert [(row["year"], row["graduates"], row["employment_percent"]) for row in result["trend"]] == [
+            (2023, 2, 50), (2024, 3, 66.67), (2025, 3, 33.33),
+        ]
+        result = career_api(port, "GET", "/outcomes?from_year=2024&to_year=2024")
+        assert result["outcome_distribution"][0] == {
+            "category": "employed", "count": 2, "percent": 66.67,
+        }
+        assert result["graduates"] == 3
+        empty = career_api(port, "GET", "/outcomes?from_year=2030")
+        assert empty["graduates"] == 0 and empty["industry_distribution"] == empty["trend"] == []
+        assert all(row["percent"] == row["count"] == 0 for row in empty["outcome_distribution"])
+        for query in ("from_year=abc", "from_year=", "from_year=2200", "from_year=2025&to_year=2024",
+                      "to_year=2024&to_year=2025", "to_year=2024&"):
+            career_api(port, "GET", "/outcomes?" + query, expected=400)
+
+
 def authenticated_career_smoke(directory):
     def call(port, method, path, data=None, token=None, expected=200):
         headers = {"Content-Type": "application/json"}
@@ -260,6 +285,38 @@ def authenticated_career_smoke(directory):
         call(port, "POST", m6 + "/users", dict(credentials, role="career_center"), admin, 201)
         career = call(port, "POST", m6 + "/login", credentials)["access_token"]
         call(port, "GET", PREFIX + "/jobs", token=admin, expected=403)
+        outcomes = PREFIX + "/outcomes"
+        call(port, "GET", outcomes, expected=401)
+        call(port, "GET", outcomes, token=admin, expected=403)
+        student_credentials = {"username": "student", "password": "http-user-password"}
+        call(port, "POST", m6 + "/users", dict(student_credentials, role="student",
+             student_no="S-01", org_id="ORG-01", class_id="CLASS-01"), admin, 201)
+        student = call(port, "POST", m6 + "/login", student_credentials)["access_token"]
+        call(port, "GET", outcomes, token=student, expected=403)
+        call(port, "GET", outcomes, token=career, expected=503)
+        with sqlite3.connect(database) as db:
+            db.execute("CREATE TABLE school_graduates (graduate_id TEXT PRIMARY KEY, "
+                       "graduation_year INTEGER, outcome_category TEXT, industry TEXT)")
+            db.execute("CREATE VIEW cd_outcome_source AS "
+                       "SELECT graduation_year, outcome_category, industry FROM school_graduates")
+        assert call(port, "GET", outcomes, token=career)["graduates"] == 0
+        with sqlite3.connect(database) as db:
+            db.executemany("INSERT INTO school_graduates VALUES (?,?,?,?)", [
+                ("A", 2024, "employed", " 制造业 "), ("B", 2024, "employed", " "),
+                ("C", 2024, "further_study", "不计入就业行业"), ("D", 2024, None, None),
+                ("E", 2025, "unemployed", None),
+            ])
+        result = call(port, "GET", outcomes + "?to_year=2024", token=career)
+        assert result["source"] == "platform" and (result["graduates"], result["employed"]) == (4, 2)
+        assert result["industry_distribution"] == [
+            {"industry": None, "count": 1, "percent": 50}, {"industry": "制造业", "count": 1, "percent": 50},
+        ]
+        assert result["outcome_distribution"][-1] == {"category": "unknown", "count": 1, "percent": 25}
+        assert len(result["trend"]) == 1 and result["trend"][0]["employment_percent"] == 50
+        assert call(port, "GET", outcomes + "?from_year=2025", token=career)["industry_distribution"] == []
+        with sqlite3.connect(database) as db:
+            db.execute("UPDATE school_graduates SET outcome_category = 'unmapped' WHERE graduate_id = 'E'")
+        call(port, "GET", outcomes, token=career, expected=503)
         job = {
             "title": "正式岗位", "industry": "信息技术", "job_type": "campus",
             "description": "审计测试", "requirements": [
@@ -296,6 +353,7 @@ def main():
         authenticated_career_smoke(directory)
     with tempfile.TemporaryDirectory() as directory:
         recommendation_smoke(directory)
+        outcomes_demo_smoke(directory)
 
 
 if __name__ == "__main__":
