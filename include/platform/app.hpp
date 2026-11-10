@@ -2,11 +2,22 @@
 
 #include <functional>
 #include <map>
+#include <memory>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace platform {
+
+namespace security { class Security; }
+struct AppOptions {
+    std::string database_path = ":memory:";
+    std::string bootstrap_username = "admin";
+    std::string bootstrap_password;
+    bool require_bootstrap = false;
+    std::function<std::int64_t()> clock;
+};
 
 struct Request {
     std::string method;
@@ -49,6 +60,8 @@ public:
                           std::string suffix, Handler handler);
     Response handle(const Request& request) const;
     const std::vector<ModuleInfo>& modules() const { return modules_; }
+    std::shared_ptr<security::Security> security() const { return security_; }
+    void set_security(std::shared_ptr<security::Security> value) { security_ = std::move(value); }
 
 private:
     struct Route {
@@ -58,8 +71,9 @@ private:
     };
     std::vector<ModuleInfo> modules_;
     std::vector<Route> routes_;
+    std::shared_ptr<security::Security> security_;
 };
 
-App make_app();
+App make_app(const AppOptions& options = {});
 
 }  // namespace platform

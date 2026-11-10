@@ -1,18 +1,19 @@
 # 高校学生成长与职业发展数据中台
 
-这是供六个模块并行开发的 C++ 工程骨架。当前只提供本地 HTTP 服务、模块注册、路由接口、浏览器测试台和测试；**没有实现业务模块**。需求范围见《实验一报告》。
+这是供六个模块并行开发的 C++ 工程。数据服务与权限管理正在本分支实现，身份、用户角色与审计接口见 [模块说明](docs/data-services.md)；其余模块保留开发入口。需求范围见《实验一报告》。
 
 ## 环境与运行
 
 - Linux（本地服务使用 POSIX socket）
 - 支持 C++17 的编译器、CMake 3.20 或更新版本
 - Python 3 可选，用于 HTTP 冒烟测试
+- SQLite3、OpenSSL、json-c 开发包及 pkg-config
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build -j
 ctest --test-dir build --output-on-failure
-./build/platform_server 8080
+PLATFORM_ADMIN_PASSWORD='请替换为至少12字符的密码' ./build/platform_server 8080
 ```
 
 打开 <http://127.0.0.1:8080/>。服务只监听本机回环地址；端口参数可改，省略时为 8080。测试台列出已经注册的模块和路由，并允许填写方法、路径、请求头和请求体，查看实际 HTTP 响应。它是开发工具，不是最终产品前端。

@@ -1,5 +1,6 @@
 #include "platform/app.hpp"
 #include "platform/modules.hpp"
+#include "platform/security.hpp"
 
 #include <stdexcept>
 #include <utility>
@@ -110,20 +111,28 @@ Response App::handle(const Request& request) const {
     for (const auto& route : routes_) {
         if (route.method != request.method) continue;
         Request matched = request;
-        if (match_path(route.path, request.path, matched.path_params))
-            return route.handler(matched);
+        if (match_path(route.path, request.path, matched.path_params)) {
+            try { return route.handler(matched); }
+            catch (const security::ApiError& error) {
+                return security::api_error(error.status, error.code, error.what());
+            } catch (const std::invalid_argument& error) {
+                return security::api_error(400, "invalid_request", error.what());
+            } catch (const std::exception&) {
+                return security::api_error(500, "internal_error", "operation could not be completed");
+            }
+        }
     }
     return json_response(404, "{\"error\":\"route not found\"}");
 }
 
-App make_app() {
+App make_app(const AppOptions& options) {
     App app;
     register_data_ingestion(app);
     register_data_governance(app);
     register_student_profile(app);
     register_academic_alerts(app);
     register_career_recommendation(app);
-    register_data_services(app);
+    register_data_services(app, options);
     return app;
 }
 }  // namespace platform
