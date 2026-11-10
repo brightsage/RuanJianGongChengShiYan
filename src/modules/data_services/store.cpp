@@ -147,6 +147,20 @@ Store::Store(const AppOptions& options) : clock_(options.clock) {
             CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL,
                 actor_id TEXT NOT NULL, action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL,
                 outcome TEXT NOT NULL, reason TEXT NOT NULL, request_id TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS services(id TEXT PRIMARY KEY, name TEXT NOT NULL, provider_id TEXT NOT NULL,
+                version TEXT NOT NULL, fields TEXT NOT NULL, scope TEXT NOT NULL, rate_per_minute INTEGER NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1, bucket INTEGER NOT NULL DEFAULT 0, bucket_count INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(name,version));
+            CREATE TABLE IF NOT EXISTS applications(id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id),
+                service_id TEXT NOT NULL REFERENCES services(id), purpose TEXT NOT NULL, scope TEXT NOT NULL,
+                validity_seconds INTEGER NOT NULL, quota INTEGER NOT NULL, rate_per_minute INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending', reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS grants(id TEXT PRIMARY KEY, application_id TEXT UNIQUE NOT NULL REFERENCES applications(id),
+                owner_id TEXT NOT NULL REFERENCES users(id), service_id TEXT NOT NULL REFERENCES services(id), scope TEXT NOT NULL,
+                expires_at INTEGER NOT NULL, quota INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0,
+                rate_per_minute INTEGER NOT NULL, mask_level TEXT NOT NULL, token_hash TEXT NOT NULL DEFAULT '',
+                revoked INTEGER NOT NULL DEFAULT 0, bucket INTEGER NOT NULL DEFAULT 0, bucket_count INTEGER NOT NULL DEFAULT 0);
+            CREATE INDEX IF NOT EXISTS grants_token ON grants(token_hash);
         )SQL");
         Transaction tx(db);
         const auto role = [&](const std::string& code, const std::string& name, const std::string& scope,

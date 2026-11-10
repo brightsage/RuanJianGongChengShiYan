@@ -15,3 +15,13 @@
 就业中心角色为 `career_center`，有 `career.jobs.read/write/publish`、`career.strategy.write` 四个权限，范围为全校。学生为 `student`，拥有 `career.recommendations.read`，范围为本人。
 
 公共接口在 `include/platform/security.hpp`。其他模块可调用 `audited_write(principal, event, callback)`，在 callback 的同一 SQLite 连接内完成业务 SQL。函数在业务操作后写入审计并提交；业务或审计任一失败都会回滚。不得在 callback 内自行提交事务或执行外部副作用。`AuditEvent` 必填 action、resource_type、resource_id，支持 before/after；密码、令牌、学号、联系方式等字段会自动脱敏。`GET /audit-logs` 仅对具有 `audit.read` 权限的账号开放。
+
+## 服务发布与授权
+
+数据管理员使用 `POST /services` 发布 `{name,provider_id,version,fields,scope,rate_per_minute}`；`scope` 是 `{type,org_id?,class_id?,student_no?}`。发布后的数据范围、字段、提供者、版本不可修改，需要修改时发布新版本。`PATCH /services/:id` 只允许调整 `active` 与限流值；暂停立即停止授权和令牌签发。`GET /services` 返回与当前账号范围有交集的服务。
+
+院系管理员或第三方账号使用 `POST /applications` 提交 `{service_id,purpose,scope,validity_seconds,quota,rate_per_minute}`。申请范围须同时被账号范围和服务范围覆盖。`GET /applications` 对申请人仅返回本人记录，对审批人返回其范围内的记录。
+
+数据管理员调用 `POST /applications/:id/decision`。批准体为 `{decision:"approve",validity_seconds,quota,rate_per_minute,mask_level:"standard"或"strict",scope?}`，各项只可缩小申请值，不能审批本人申请。拒绝体为 `{decision:"reject",reason}`。重复审批返回 409。
+
+批准后由申请人调用 `POST /applications/:id/token` 取得服务令牌 `svc_...`；令牌与登录令牌分离，只返回一次，再次调用会轮换。`POST /applications/:id/revoke` 允许申请人或审批人撤销授权。授权到期、撤销、账号停用、范围收缩或服务暂停后，不再允许签发有效令牌。令牌和配额均与具体服务版本绑定。

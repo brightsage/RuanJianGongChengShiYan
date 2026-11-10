@@ -53,4 +53,7 @@ security::Scope parse_scope(const Json& value);
 Json strings(const std::vector<std::string>& values);
 std::vector<std::string> string_list(const Json& value);
 void install_identity_routes(App& app, const std::shared_ptr<security::Security>& security);
+void install_service_routes(App& app, const std::shared_ptr<security::Security>& security);
+security::Principal load_principal(Store& store, const std::string& user_id);
+Json service_json(Statement& row);
 }  // namespace platform::data_services

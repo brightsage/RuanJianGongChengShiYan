@@ -25,6 +25,7 @@ add_library(platform_core
     src/modules/data_services/module.cpp
     src/modules/data_services/store.cpp
     src/modules/data_services/security.cpp
+    src/modules/data_services/services.cpp
 )
 target_include_directories(platform_core PUBLIC include)
 target_link_libraries(platform_core PUBLIC OpenSSL::Crypto ${PLATFORM_SQLITE_TARGET} PkgConfig::JSONC)
@@ -42,6 +43,9 @@ add_test(NAME platform_tests COMMAND platform_tests)
 add_executable(security_tests tests/security_test.cpp)
 target_link_libraries(security_tests PRIVATE platform_core)
 add_test(NAME security_tests COMMAND security_tests)
+add_executable(service_tests tests/service_test.cpp)
+target_link_libraries(service_tests PRIVATE platform_core)
+add_test(NAME service_tests COMMAND service_tests)
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     add_test(NAME http_smoke

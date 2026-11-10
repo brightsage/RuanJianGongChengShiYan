@@ -58,6 +58,7 @@ int main() {
         check(count == 0, "business mutation must roll back with audit");
     });
     const auto logs = call(app, "GET", "/audit-logs", "", admin);
+    check(logs.status == 200 && Json::parse(logs.body).is(json_type_array), "audit log must be readable");
     check(logs.body.find("test-user-password") == std::string::npos, "password must not appear in audit");
     check(logs.body.find("20260001") == std::string::npos, "student number must be redacted in audit");
     check(call(app, "PATCH", "/users/" + student_id, R"({"active":false})", admin).status == 200, "disable user");

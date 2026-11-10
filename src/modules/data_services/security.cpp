@@ -78,6 +78,13 @@ void Security::audited_write(const Principal& actor, AuditEvent& event, const st
 namespace platform::data_services {
 using security::ApiError;
 using security::AuditEvent;
+security::Principal load_principal(Store& store, const std::string& user_id) {
+    Statement row(store.db, "SELECT u.id,u.username,u.role,u.org_id,u.class_id,u.student_no,r.scope_type,r.permissions "
+        "FROM users u JOIN roles r ON r.code=u.role WHERE u.id=? AND u.active=1"); row.bind(1, user_id);
+    if (!row.step()) throw ApiError(403, "forbidden", "account is inactive or unavailable");
+    security::Principal p{row.text(0), row.text(1), row.text(2), row.text(3), row.text(4), row.text(5), {}, {}};
+    p.scope = {row.text(6), p.org_id, p.class_id, p.student_no}; p.permissions = string_list(Json::parse(row.text(7))); return p;
+}
 namespace {
 std::string optional_text(const Json& value, const std::string& field) {
     return value.has(field) ? text(value, field, 100) : "";

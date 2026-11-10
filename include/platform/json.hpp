@@ -18,11 +18,12 @@ public:
     static Json number(std::int64_t n) { return Json(json_object_new_int64(n)); }
     static Json boolean(bool b) { return Json(json_object_new_boolean(b)); }
     static Json parse(const std::string& input) {
+        const std::string terminated = input + " ";
         auto tok = std::unique_ptr<json_tokener, decltype(&json_tokener_free)>(json_tokener_new_ex(32), json_tokener_free);
         json_tokener_set_flags(tok.get(), JSON_TOKENER_STRICT | JSON_TOKENER_VALIDATE_UTF8);
-        Json result(json_tokener_parse_ex(tok.get(), input.data(), static_cast<int>(input.size())));
+        Json result(json_tokener_parse_ex(tok.get(), terminated.data(), static_cast<int>(terminated.size())));
         if (json_tokener_get_error(tok.get()) != json_tokener_success ||
-            input.find_first_not_of(" \t\r\n", json_tokener_get_parse_end(tok.get())) != std::string::npos)
+            terminated.find_first_not_of(" \t\r\n", json_tokener_get_parse_end(tok.get())) != std::string::npos)
             throw std::invalid_argument("invalid JSON");
         return result;
     }
