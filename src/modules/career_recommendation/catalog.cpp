@@ -127,7 +127,7 @@ std::string validate_status(const Json& input) {
     return status;
 }
 
-Catalog::Catalog(const std::string& database_path) : db_(database_path) {
+Catalog::Catalog(Database& database) : db_(database) {
     db_.exec(R"sql(
         CREATE TABLE IF NOT EXISTS cd_jobs (
             id INTEGER PRIMARY KEY,
@@ -150,6 +150,12 @@ Json Catalog::list_jobs() {
         jobs.push_back(read_job(row));
     }
     return jobs;
+}
+
+Json Catalog::get_job(std::int64_t id) {
+    const auto rows = db_.query("SELECT * FROM cd_jobs WHERE id = ?", {id});
+    if (rows.empty()) throw CatalogError(404, "岗位不存在");
+    return read_job(rows.front());
 }
 
 Json Catalog::create_job(const Json& details) {
@@ -180,8 +186,14 @@ Json Catalog::set_status(std::int64_t id, const std::string& status) {
 }
 
 Json Catalog::get_strategy() {
+    auto strategy = find_strategy();
+    if (strategy.is_null()) throw CatalogError(409, "尚未配置推荐策略");
+    return strategy;
+}
+
+Json Catalog::find_strategy() {
     const auto rows = db_.query("SELECT * FROM cd_strategy WHERE id = 1");
-    if (rows.empty()) throw CatalogError(409, "尚未配置推荐策略");
+    if (rows.empty()) return {};
     return read_strategy(rows.front());
 }
 

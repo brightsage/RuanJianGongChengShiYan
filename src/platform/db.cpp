@@ -161,8 +161,10 @@ Database::Database(const std::string& path) {
     exec("PRAGMA journal_mode = WAL;");
 }
 
+Database::Database(sqlite3& connection) : db_(&connection), owns_connection_(false) {}
+
 Database::~Database() {
-    if (db_ != nullptr) sqlite3_close_v2(db_);
+    if (owns_connection_ && db_ != nullptr) sqlite3_close_v2(db_);
 }
 
 void Database::exec(const std::string& sql) {
@@ -209,6 +211,8 @@ void Database::rollback() { exec("ROLLBACK;"); }
 
 std::string default_database_path() {
     const char* from_env = std::getenv("PLATFORM_DB_PATH");
+    if (from_env != nullptr && *from_env != '\0') return from_env;
+    from_env = std::getenv("PLATFORM_DB");
     if (from_env != nullptr && *from_env != '\0') return from_env;
     return "data/platform.db";
 }

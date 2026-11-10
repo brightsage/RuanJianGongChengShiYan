@@ -5,6 +5,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+find_package(OpenSSL REQUIRED)
 
 if(MSVC)
     add_compile_options(/W4 /utf-8)
@@ -36,9 +37,13 @@ add_library(platform_core
     src/modules/career_recommendation/module.cpp
     src/modules/career_recommendation/catalog.cpp
     src/modules/data_services/module.cpp
+    src/modules/data_services/store.cpp
+    src/modules/data_services/security.cpp
+    src/modules/data_services/services.cpp
+    src/modules/data_services/gateway.cpp
 )
 target_include_directories(platform_core PUBLIC include ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(platform_core PUBLIC platform_sqlite)
+target_link_libraries(platform_core PUBLIC platform_sqlite OpenSSL::Crypto)
 
 add_executable(platform_server src/main.cpp src/http_server.cpp)
 target_link_libraries(platform_server PRIVATE platform_core)
@@ -55,10 +60,18 @@ add_test(NAME platform_tests COMMAND platform_tests)
 add_executable(platform_storage_tests tests/storage_test.cpp)
 target_link_libraries(platform_storage_tests PRIVATE platform_core)
 add_test(NAME platform_storage_tests COMMAND platform_storage_tests)
+foreach(suite IN ITEMS security service gateway)
+    add_executable(${suite}_tests tests/${suite}_test.cpp)
+    target_link_libraries(${suite}_tests PRIVATE platform_core)
+    add_test(NAME ${suite}_tests COMMAND ${suite}_tests)
+endforeach()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     add_test(NAME http_smoke
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/http_smoke.py
+                $<TARGET_FILE:platform_server>)
+    add_test(NAME data_services_http
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/data_services_http.py
                 $<TARGET_FILE:platform_server>)
 endif()

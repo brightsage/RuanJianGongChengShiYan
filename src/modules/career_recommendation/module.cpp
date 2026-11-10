@@ -1,6 +1,7 @@
 #include "platform/modules.hpp"
 
 #include "catalog.hpp"
+#include "platform/security.hpp"
 
 #include <charconv>
 #include <cstdlib>
@@ -52,6 +53,17 @@ bool demo_database_is_separate() {
            !fs::equivalent(demo_database, platform_db);
 }
 
+void record_changes(security::AuditEvent& event, const Json& before, const Json& after) {
+    event.before = Json::object();
+    event.after = Json::object();
+    for (const auto& [key, value] : after.as_object()) {
+        if (key == "id" || key == "version") continue;
+        if (before.contains(key) && before.at(key).dump() == value.dump()) continue;
+        if (before.contains(key)) event.before[key] = before.at(key);
+        event.after[key] = value;
+    }
+}
+
 }  // namespace
 
 void register_career_recommendation(App& app) {
@@ -59,18 +71,32 @@ void register_career_recommendation(App& app) {
     const char* demo_env = std::getenv("PLATFORM_CAREER_DEMO");
     const bool demo_enabled = demo_env != nullptr && std::string_view(demo_env) == "1";
 
-    const auto add = [&](const char* method, const char* path, auto handle) {
+    const auto access = app.security();
+    const auto add = [&](const char* method, const char* path, const char* permission,
+                         const char* action, const char* resource, auto handle) {
         app.add_module_route(module_id, method, path,
-            [demo_enabled, handle](const Request& request) -> Response {
-                if (!demo_enabled || !is_demo_request(request)) {
-                    return error_response(503, "职业推荐管理接口尚未接入统一权限");
-                }
+            [demo_enabled, access, permission, action, resource, handle](const Request& request) -> Response {
                 try {
-                    if (!demo_database_is_separate()) {
-                        return error_response(503, "演示数据库必须与平台数据库分开");
+                    security::AuditEvent event(action, resource, "new");
+                    if (demo_enabled) {
+                        if (!is_demo_request(request) || !demo_database_is_separate()) {
+                            return error_response(503, "职业推荐演示未启用或数据库未隔离");
+                        }
+                        Database db(demo_database);
+                        career::Catalog catalog(db);
+                        return handle(catalog, request, event);
                     }
-                    career::Catalog catalog(demo_database);
-                    return handle(catalog, request);
+                    if (!access) return error_response(503, "统一权限服务不可用");
+                    const auto actor = access->authorize(request, permission, security::Scope{});
+                    Response response;
+                    const auto operation = [&](sqlite3* connection) {
+                        Database db(*connection);
+                        career::Catalog catalog(db);
+                        response = handle(catalog, request, event);
+                    };
+                    if (*action) access->audited_write(actor, event, operation);
+                    else access->with_connection(operation);
+                    return response;
                 } catch (const career::CatalogError& error) {
                     return error_response(error.status, error.what());
                 } catch (const JsonError&) {
@@ -83,27 +109,52 @@ void register_career_recommendation(App& app) {
             });
     };
 
-    add("GET", "/jobs", [](career::Catalog& catalog, const Request&) {
+    add("GET", "/jobs", "career.jobs.read", "", "",
+        [](career::Catalog& catalog, const Request&, security::AuditEvent&) {
         return json_response(200, catalog.list_jobs());
     });
-    add("POST", "/jobs", [](career::Catalog& catalog, const Request& request) {
+    add("POST", "/jobs", "career.jobs.write", "career.job.create", "job",
+        [](career::Catalog& catalog, const Request& request, security::AuditEvent& event) {
         const auto job = career::validate_job(Json::parse(request.body));
-        return json_response(201, catalog.create_job(job));
+        const auto saved = catalog.create_job(job);
+        event.resource_id = std::to_string(saved.at("id").as_int64());
+        record_changes(event, {}, saved);
+        return json_response(201, saved);
     });
-    add("PUT", "/jobs/:id", [](career::Catalog& catalog, const Request& request) {
+    add("PUT", "/jobs/:id", "career.jobs.write", "career.job.update", "job",
+        [](career::Catalog& catalog, const Request& request, security::AuditEvent& event) {
+        const auto id = job_id(request);
+        event.resource_id = std::to_string(id);
         const auto job = career::validate_job(Json::parse(request.body));
-        return json_response(200, catalog.update_job(job_id(request), job));
+        const auto before = catalog.get_job(id);
+        const auto saved = catalog.update_job(id, job);
+        record_changes(event, before, saved);
+        return json_response(200, saved);
     });
-    add("PUT", "/jobs/:id/status", [](career::Catalog& catalog, const Request& request) {
+    add("PUT", "/jobs/:id/status", "career.jobs.publish", "career.job.publish", "job",
+        [](career::Catalog& catalog, const Request& request, security::AuditEvent& event) {
+        const auto id = job_id(request);
+        event.resource_id = std::to_string(id);
         const auto status = career::validate_status(Json::parse(request.body));
-        return json_response(200, catalog.set_status(job_id(request), status));
+        const auto before = catalog.get_job(id);
+        if (status == "withdrawn") event.action = "career.job.unpublish";
+        else if (before.at("status").as_string() == "withdrawn") event.action = "career.job.republish";
+        const auto saved = catalog.set_status(id, status);
+        record_changes(event, before, saved);
+        return json_response(200, saved);
     });
-    add("GET", "/strategy", [](career::Catalog& catalog, const Request&) {
+    add("GET", "/strategy", "career.strategy.write", "", "",
+        [](career::Catalog& catalog, const Request&, security::AuditEvent&) {
         return json_response(200, catalog.get_strategy());
     });
-    add("PUT", "/strategy", [](career::Catalog& catalog, const Request& request) {
+    add("PUT", "/strategy", "career.strategy.write", "career.strategy.update", "strategy",
+        [](career::Catalog& catalog, const Request& request, security::AuditEvent& event) {
+        event.resource_id = "1";
         const auto strategy = career::validate_strategy(Json::parse(request.body));
-        return json_response(200, catalog.save_strategy(strategy));
+        const auto before = catalog.find_strategy();
+        const auto saved = catalog.save_strategy(strategy);
+        record_changes(event, before, saved);
+        return json_response(200, saved);
     });
 }
 }  // namespace platform

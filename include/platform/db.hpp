@@ -41,6 +41,7 @@ using DbRows = std::vector<DbRow>;
 class Database {
 public:
     explicit Database(const std::string& path);
+    explicit Database(sqlite3& connection);
     ~Database();
 
     Database(const Database&) = delete;
@@ -61,6 +62,7 @@ public:
 
 private:
     sqlite3* db_ = nullptr;
+    bool owns_connection_ = true;
 };
 
 // 默认数据库路径为 data/platform.db，可用环境变量 PLATFORM_DB_PATH 覆盖。

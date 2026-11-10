@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -28,7 +29,7 @@ def server(directory, demo=False, database="platform.db"):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     environment = dict(os.environ, PLATFORM_CAREER_DEMO="1" if demo else "0",
-                       PLATFORM_DB_PATH=database)
+                       PLATFORM_DB_PATH=database, PLATFORM_ADMIN_PASSWORD="http-admin-password")
     process = subprocess.Popen(
         [str(Path(sys.argv[1]).resolve()), str(port)], cwd=directory, env=environment,
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -78,7 +79,7 @@ def platform_smoke(directory):
         status, _ = request(port, "GET", "/career.js")
         assert status == 200
         status, _ = request(port, "GET", PREFIX + "/jobs", headers=DEMO)
-        assert status == 503
+        assert status == 401
         status, body = request(port, "GET", "/api/modules/student-profile/123")
         assert status == 404
         status, body = request(port, "POST", "/api/health", body="hello")
@@ -172,10 +173,59 @@ def career_smoke(directory):
     assert demo_db.is_file() and not Path(directory, "platform.db").exists()
 
 
+def authenticated_career_smoke(directory):
+    def call(port, method, path, data=None, token=None, expected=200):
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        payload = json.dumps(data) if data is not None else None
+        status, response = request(port, method, path, payload, headers)
+        assert status == expected, (method, path, status, response)
+        return json.loads(response)
+
+    m6 = "/api/modules/data-services"
+    database = Path(directory, "platform.db")
+    with server(directory) as port:
+        admin = call(port, "POST", m6 + "/login",
+                     {"username": "admin", "password": "http-admin-password"})["access_token"]
+        credentials = {"username": "career", "password": "http-user-password"}
+        call(port, "POST", m6 + "/users", dict(credentials, role="career_center"), admin, 201)
+        career = call(port, "POST", m6 + "/login", credentials)["access_token"]
+        call(port, "GET", PREFIX + "/jobs", token=admin, expected=403)
+        job = {
+            "title": "正式岗位", "industry": "信息技术", "job_type": "campus",
+            "description": "审计测试", "requirements": [
+                {"competency_code": "programming", "threshold": 80, "weight": 3},
+            ],
+        }
+        created = call(port, "POST", PREFIX + "/jobs", job, career, 201)
+        job_path = PREFIX + f"/jobs/{created['id']}"
+        published = call(port, "PUT", job_path + "/status", {"status": "published"}, career)
+        assert published["status"] == "published"
+        call(port, "PUT", job_path, dict(job, requirements=[]), career, 400)
+        logs = call(port, "GET", m6 + "/audit-logs?action=career.job.update", token=admin)
+        assert len(logs) == 1 and logs[0]["outcome"] == "failure"
+        logs = call(port, "GET", m6 + "/audit-logs?action=career.job.publish", token=admin)
+        assert len(logs) == 1 and logs[0]["after"] == {"status": "published"}
+        with sqlite3.connect(database) as db:
+            db.execute("CREATE TRIGGER test_audit_failure BEFORE INSERT ON audit_logs "
+                       "WHEN NEW.action = 'career.job.update' "
+                       "BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+        call(port, "PUT", job_path, dict(job, title="应回滚"), career, 500)
+        assert call(port, "GET", PREFIX + "/jobs", token=career) == [published]
+        with sqlite3.connect(database) as db:
+            db.execute("DROP TRIGGER test_audit_failure")
+        updated = call(port, "PUT", job_path, dict(job, title="新岗位"), career)
+        logs = call(port, "GET", m6 + "/audit-logs?action=career.job.update", token=admin)
+        assert logs[0]["before"] == {"title": published["title"]}
+        assert logs[0]["after"] == {"title": updated["title"]}
+
+
 def main():
     with tempfile.TemporaryDirectory() as directory:
-        platform_smoke(directory)
         career_smoke(directory)
+        platform_smoke(directory)
+        authenticated_career_smoke(directory)
 
 
 if __name__ == "__main__":

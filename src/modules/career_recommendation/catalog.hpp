@@ -18,17 +18,19 @@ std::string validate_status(const Json& input);
 
 class Catalog {
 public:
-    explicit Catalog(const std::string& database_path);
+    explicit Catalog(Database& database);
 
     Json list_jobs();
+    Json get_job(std::int64_t id);
     Json create_job(const Json& details);
     Json update_job(std::int64_t id, const Json& details);
     Json set_status(std::int64_t id, const std::string& status);
     Json get_strategy();
+    Json find_strategy();
     Json save_strategy(const Json& details);
 
 private:
-    Database db_;
+    Database& db_;
 };
 
 }  // namespace platform::career

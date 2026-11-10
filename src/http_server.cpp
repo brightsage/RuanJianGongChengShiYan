@@ -49,12 +49,16 @@ std::string status_text(int status) {
         case 202: return "Accepted";
         case 204: return "No Content";
         case 400: return "Bad Request";
+        case 401: return "Unauthorized";
+        case 403: return "Forbidden";
         case 404: return "Not Found";
         case 405: return "Method Not Allowed";
         case 409: return "Conflict";
         case 413: return "Payload Too Large";
+        case 429: return "Too Many Requests";
         case 500: return "Internal Server Error";
         case 501: return "Not Implemented";
+        case 502: return "Bad Gateway";
         case 503: return "Service Unavailable";
         default: return "Response";
     }
@@ -143,6 +147,15 @@ Response static_file(const std::string& path) {
     } else if (path == "/style.css") {
         filename = "style.css";
         type = "text/css; charset=utf-8";
+    } else if (path == "/data-services") {
+        filename = "data-services.html";
+        type = "text/html; charset=utf-8";
+    } else if (path == "/data-services.js") {
+        filename = "data-services.js";
+        type = "text/javascript; charset=utf-8";
+    } else if (path == "/data-services.css") {
+        filename = "data-services.css";
+        type = "text/css; charset=utf-8";
     } else {
         return error_response(404, "asset not found");
     }
@@ -218,7 +231,9 @@ Response receive_and_handle(socket_handle fd, const App& app) {
         request.body.append(buffer, static_cast<std::size_t>(count));
     }
     if (request.path == "/" || request.path == "/career" || request.path == "/career.js" ||
-        request.path == "/app.js" || request.path == "/style.css") {
+        request.path == "/app.js" || request.path == "/style.css" ||
+        request.path == "/data-services" || request.path == "/data-services.js" ||
+        request.path == "/data-services.css") {
         if (request.method != "GET") return error_response(405, "method not allowed");
         return static_file(request.path);
     }

@@ -10,9 +10,9 @@
 
 namespace platform {
 
-class JsonError : public std::runtime_error {
+class JsonError : public std::invalid_argument {
 public:
-    using std::runtime_error::runtime_error;
+    using std::invalid_argument::invalid_argument;
 };
 
 // 轻量 JSON 值。只覆盖本项目接口需要的类型：null、bool、number、string、
