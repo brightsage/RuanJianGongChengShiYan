@@ -1,6 +1,7 @@
 #pragma once
 
 #include "platform/security.hpp"
+#include "platform/data_services.hpp"
 #include <sqlite3.h>
 #include <mutex>
 
@@ -54,6 +55,11 @@ Json strings(const std::vector<std::string>& values);
 std::vector<std::string> string_list(const Json& value);
 void install_identity_routes(App& app, const std::shared_ptr<security::Security>& security);
 void install_service_routes(App& app, const std::shared_ptr<security::Security>& security);
+void install_gateway_routes(App& app, const std::shared_ptr<Gateway>& gateway);
+Handler guarded(const std::shared_ptr<Store>& store, Handler handler);
+std::map<std::string, std::string> query_parameters(const std::string& query);
+std::int64_t query_number(const std::map<std::string, std::string>& query, const std::string& key,
+                          std::int64_t fallback, std::int64_t min, std::int64_t max);
 security::Principal load_principal(Store& store, const std::string& user_id);
 Json service_json(Statement& row);
 }  // namespace platform::data_services

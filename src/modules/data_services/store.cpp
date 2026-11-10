@@ -4,6 +4,7 @@
 #include <openssl/rand.h>
 #include <algorithm>
 #include <chrono>
+#include <charconv>
 #include <iomanip>
 #include <sstream>
 
@@ -161,6 +162,13 @@ Store::Store(const AppOptions& options) : clock_(options.clock) {
                 rate_per_minute INTEGER NOT NULL, mask_level TEXT NOT NULL, token_hash TEXT NOT NULL DEFAULT '',
                 revoked INTEGER NOT NULL DEFAULT 0, bucket INTEGER NOT NULL DEFAULT 0, bucket_count INTEGER NOT NULL DEFAULT 0);
             CREATE INDEX IF NOT EXISTS grants_token ON grants(token_hash);
+            CREATE TABLE IF NOT EXISTS masking_rules(field TEXT PRIMARY KEY, algorithm TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS call_logs(id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL,
+                service_id TEXT NOT NULL, grant_id TEXT NOT NULL, actor_id TEXT NOT NULL,
+                status INTEGER NOT NULL, reason TEXT NOT NULL, request_id TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS call_logs_service ON call_logs(service_id,created_at);
+            CREATE INDEX IF NOT EXISTS audit_logs_time ON audit_logs(created_at);
         )SQL");
         Transaction tx(db);
         const auto role = [&](const std::string& code, const std::string& name, const std::string& scope,
@@ -175,6 +183,11 @@ Store::Store(const AppOptions& options) : clock_(options.clock) {
         role("career_center", "就业指导中心", "all", {"career.jobs.read", "career.jobs.write", "career.jobs.publish", "career.strategy.write"});
         role("student", "学生", "self", {"career.recommendations.read"});
         role("counselor", "辅导员", "class", {});
+        for (const auto& field : {"student_no", "id_card", "phone", "name"})
+            Statement(db, "INSERT OR IGNORE INTO masking_rules VALUES(?,'partial')").bind(1, field).step();
+        for (const auto& field : {"email", "score", "address", "birth_date", "contact_info"})
+            Statement(db, "INSERT OR IGNORE INTO masking_rules VALUES(?,'redact')").bind(1, field).step();
+        Statement(db, "INSERT OR IGNORE INTO settings VALUES('mask_key',?)").bind(1, random_token("")).step();
         Statement count(db, "SELECT count(*) FROM users"); count.step();
         if (count.integer(0) == 0 && !options.bootstrap_password.empty()) {
             if (options.bootstrap_password.size() < 12) throw std::invalid_argument("bootstrap password must have at least 12 characters");
@@ -196,5 +209,65 @@ void Store::audit(const std::string& actor, const security::AuditEvent& event) {
         .bind(1, now()).bind(2, actor).bind(3, event.action).bind(4, event.resource_type).bind(5, event.resource_id)
         .bind(6, event.outcome).bind(7, event.reason).bind(8, event.request_id.empty() ? random_token("req_") : event.request_id)
         .bind(9, scrub(event.before).dump()).bind(10, scrub(event.after).dump()).step();
+}
+
+Handler guarded(const std::shared_ptr<Store>& store, Handler handler) {
+    return [store, handler = std::move(handler)](const Request& request) {
+        std::lock_guard<std::recursive_mutex> lock(store->mutex);
+        const auto record_failure = [&](const std::string& reason) {
+            std::string actor = "anonymous";
+            const auto header = request.headers.find("authorization");
+            if (header != request.headers.end() && header->second.rfind("Bearer usr_", 0) == 0) {
+                Statement row(store->db, "SELECT user_id FROM sessions WHERE token_hash=? AND expires_at>?");
+                row.bind(1, digest(header->second.substr(7))).bind(2, store->now());
+                if (row.step()) actor = row.text(0);
+            }
+            security::AuditEvent event{"request.rejected", "endpoint", request.method + " " + request.path};
+            event.outcome = "failure"; event.reason = reason; store->audit(actor, event);
+        };
+        try { return handler(request); }
+        catch (const security::ApiError& error) {
+            record_failure(error.code); return security::api_error(error.status, error.code, error.what());
+        } catch (const std::invalid_argument& error) {
+            record_failure("invalid_request"); return security::api_error(400, "invalid_request", error.what());
+        } catch (const std::exception&) {
+            record_failure("internal_error"); return security::api_error(500, "internal_error", "operation could not be completed");
+        }
+    };
+}
+std::map<std::string, std::string> query_parameters(const std::string& query) {
+    const auto decode = [](const std::string& value) {
+        std::string out;
+        for (std::size_t i = 0; i < value.size(); ++i) {
+            if (value[i] == '%') {
+                if (i + 2 >= value.size()) throw std::invalid_argument("invalid query encoding");
+                unsigned byte = 0;
+                const auto rc = std::from_chars(value.data() + i + 1, value.data() + i + 3, byte, 16);
+                if (rc.ec != std::errc{} || rc.ptr != value.data() + i + 3 || byte == 0) throw std::invalid_argument("invalid query encoding");
+                out += static_cast<char>(byte); i += 2;
+            } else out += value[i] == '+' ? ' ' : value[i];
+        }
+        return out;
+    };
+    std::map<std::string, std::string> result;
+    for (std::size_t start = 0; start < query.size();) {
+        const auto end = query.find('&', start), equals = query.find('=', start);
+        const auto stop = end == std::string::npos ? query.size() : end;
+        if (equals == std::string::npos || equals >= stop) throw std::invalid_argument("query needs key=value");
+        const auto key = decode(query.substr(start, equals - start));
+        if (!result.emplace(key, decode(query.substr(equals + 1, stop - equals - 1))).second)
+            throw std::invalid_argument("duplicate query parameter");
+        start = stop + 1;
+    }
+    return result;
+}
+std::int64_t query_number(const std::map<std::string, std::string>& query, const std::string& key,
+                          std::int64_t fallback, std::int64_t min, std::int64_t max) {
+    const auto it = query.find(key); if (it == query.end()) return fallback;
+    std::int64_t value = 0;
+    const auto rc = std::from_chars(it->second.data(), it->second.data() + it->second.size(), value);
+    if (rc.ec != std::errc{} || rc.ptr != it->second.data() + it->second.size() || value < min || value > max)
+        throw std::invalid_argument("invalid query " + key);
+    return value;
 }
 }  // namespace platform::data_services

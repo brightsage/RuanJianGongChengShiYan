@@ -44,10 +44,7 @@ Json service_json(Statement& row) {
 void install_service_routes(App& app, const std::shared_ptr<security::Security>& sec) {
     auto store = sec->store();
     const auto add = [&](const std::string& method, const std::string& path, Handler handler) {
-        app.add_module_route("data-services", method, path, [store, handler = std::move(handler)](const Request& request) {
-            std::lock_guard<std::recursive_mutex> lock(store->mutex);
-            return handler(request);
-        });
+        app.add_module_route("data-services", method, path, guarded(store, std::move(handler)));
     };
     add("GET", "/services", [sec, store](const Request& request) {
         const auto p = sec->authorize(request, "services.read");

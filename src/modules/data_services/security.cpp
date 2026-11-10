@@ -3,6 +3,7 @@
 #include <openssl/crypto.h>
 #include <algorithm>
 #include <set>
+#include <limits>
 
 namespace platform::security {
 using namespace data_services;
@@ -56,7 +57,13 @@ bool Security::permitted(const Principal& p, const std::string& permission) cons
     return std::find(p.permissions.begin(), p.permissions.end(), permission) != p.permissions.end();
 }
 Principal Security::authorize(const Request& request, const std::string& permission, const Scope& resource) const {
-    const auto p = authenticate(request);
+    Principal p;
+    try { p = authenticate(request); }
+    catch (const ApiError&) {
+        std::lock_guard<std::recursive_mutex> lock(store_->mutex);
+        AuditEvent event{"authentication.denied", "permission", permission};
+        event.outcome = "failure"; event.reason = "unauthorized"; store_->audit("anonymous", event); throw;
+    }
     if (!permitted(p, permission) || (!resource.type.empty() && !contains(p.scope, resource))) {
         std::lock_guard<std::recursive_mutex> lock(store_->mutex);
         AuditEvent event{"permission.denied", "permission", permission};
@@ -108,11 +115,7 @@ const std::set<std::string> permissions = {"users.manage", "roles.manage", "mask
 void install_identity_routes(App& app, const std::shared_ptr<security::Security>& sec) {
     auto store = sec->store();
     const auto add = [&](const std::string& method, const std::string& path, Handler handler) {
-        app.add_module_route("data-services", method, path,
-            [store, handler = std::move(handler)](const Request& request) {
-                std::lock_guard<std::recursive_mutex> lock(store->mutex);
-                return handler(request);
-            });
+        app.add_module_route("data-services", method, path, guarded(store, std::move(handler)));
     };
     add("POST", "/login", [store](const Request& request) {
         const auto input = body(request);
@@ -246,8 +249,16 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         return json(200, input);
     });
     add("GET", "/audit-logs", [sec, store](const Request& request) {
-        sec->authorize(request, "audit.read"); auto result = Json::array();
-        Statement rows(store->db, "SELECT id,created_at,actor_id,action,resource_type,resource_id,outcome,reason,request_id,before_json,after_json FROM audit_logs ORDER BY id DESC LIMIT 200");
+        sec->authorize(request, "audit.read"); auto result = Json::array(); const auto query = query_parameters(request.query);
+        auto sql = std::string("SELECT id,created_at,actor_id,action,resource_type,resource_id,outcome,reason,request_id,before_json,after_json FROM audit_logs WHERE created_at>=? AND created_at<=?");
+        std::vector<std::string> filters;
+        for (const auto& key : {"actor_id", "action", "resource_type", "outcome"}) if (query.count(key)) { sql += " AND " + std::string(key) + "=?"; filters.push_back(query.at(key)); }
+        sql += " ORDER BY id DESC LIMIT ? OFFSET ?";
+        Statement rows(store->db, sql);
+        rows.bind(1, query_number(query, "from", 0, 0, std::numeric_limits<std::int64_t>::max()))
+            .bind(2, query_number(query, "to", std::numeric_limits<std::int64_t>::max(), 0, std::numeric_limits<std::int64_t>::max()));
+        int index = 3; for (const auto& value : filters) rows.bind(index++, value);
+        rows.bind(index++, query_number(query, "limit", 100, 1, 200)); rows.bind(index, query_number(query, "offset", 0, 0, 100000000));
         while (rows.step()) {
             auto item = Json::object(); item.set("id", Json::number(rows.integer(0))); item.set("created_at", Json::number(rows.integer(1)));
             const char* fields[] = {"actor_id", "action", "resource_type", "resource_id", "outcome", "reason", "request_id"};

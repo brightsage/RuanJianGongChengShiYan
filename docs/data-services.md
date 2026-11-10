@@ -25,3 +25,15 @@
 数据管理员调用 `POST /applications/:id/decision`。批准体为 `{decision:"approve",validity_seconds,quota,rate_per_minute,mask_level:"standard"或"strict",scope?}`，各项只可缩小申请值，不能审批本人申请。拒绝体为 `{decision:"reject",reason}`。重复审批返回 409。
 
 批准后由申请人调用 `POST /applications/:id/token` 取得服务令牌 `svc_...`；令牌与登录令牌分离，只返回一次，再次调用会轮换。`POST /applications/:id/revoke` 允许申请人或审批人撤销授权。授权到期、撤销、账号停用、范围收缩或服务暂停后，不再允许签发有效令牌。令牌和配额均与具体服务版本绑定。
+
+## 提供者与受控调用
+
+其他模块通过 `app.data_services()->register_provider(id, fields, handler)` 接入只读数据提供者，声明允许发布的字段。头文件为 `include/platform/data_services.hpp`。应用先初始化数据服务模块，然后初始化其余模块，所以各模块注册函数中即可调用此入口。`GET /providers` 供数据管理员查看当前注册的提供者。
+
+handler 接收 `Query {caller,scope,fields,parameters}`，返回记录数组。每条记录必须携带真实 `org_id`，班级范围还需 `class_id`，本人范围还需 `student_no`。提供者先按 scope 查询，网关返回前再次筛选范围，并且只保留已发布字段。调用者不能在请求体中指定授权范围。提供者应只读且不产生外部副作用。
+
+第三方使用服务令牌请求 `POST /services/:id/invoke`，请求体 `{parameters:{...}}`。返回 `{service_id,version,records,request_id}`。网关重新检查账号、权限、范围、服务状态和令牌期限，按授权总额度、授权每分钟限流、服务全局每分钟限流共同限制调用。成功响应才消耗额度；失败也留调用审计。未注册提供者返回 503，提供者字段与发布配置不符返回 409，绝不返回模拟业务数据。
+
+系统管理员通过 `GET /masking-rules`、`PUT /masking-rules/:field` 配置 `{algorithm:"redact"|"partial"|"hash"}`。默认覆盖学号、身份证、姓名、成绩、电话和邮件等字段，递归处理嵌套结构。hash 使用数据库内持久密钥的 HMAC-SHA256；strict 授权将所有配置为敏感的字段完全遮盖。密码、令牌、密钥字段始终遮盖。新增敏感字段时须同时配置脱敏规则。
+
+`GET /call-logs` 仅供系统管理员审计，可按 `service_id/actor_id/status` 过滤。`GET /audit-logs` 可按 `actor_id/action/resource_type/outcome` 过滤。两者支持 Unix 秒 `from/to` 与 `limit/offset` 分页（默认 100，最多 200）。日志不包含令牌、请求参数或原始数据，调用日志与操作审计通过 request_id 关联。成功调用的额度扣减、调用日志与操作审计在同一事务内；审计失败时回滚并返回 500。

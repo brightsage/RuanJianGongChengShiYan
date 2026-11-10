@@ -127,12 +127,12 @@ Response App::handle(const Request& request) const {
 
 App make_app(const AppOptions& options) {
     App app;
+    register_data_services(app, options);
     register_data_ingestion(app);
     register_data_governance(app);
     register_student_profile(app);
     register_academic_alerts(app);
     register_career_recommendation(app);
-    register_data_services(app, options);
     return app;
 }
 }  // namespace platform
