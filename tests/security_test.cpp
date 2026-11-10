@@ -57,8 +57,15 @@ int main() {
         sqlite3_step(row); const int count = sqlite3_column_int(row, 0); sqlite3_finalize(row);
         check(count == 0, "business mutation must roll back with audit");
     });
+    bool business_failure = false;
+    try { app.security()->audited_write(principal, event, [&](sqlite3* db) {
+        sqlite3_exec(db, "INSERT INTO test_business VALUES('temporary')", nullptr, nullptr, nullptr);
+        throw std::runtime_error("business failure");
+    }); } catch (const std::runtime_error&) { business_failure = true; }
+    check(business_failure, "business failure must propagate");
     const auto logs = call(app, "GET", "/audit-logs", "", admin);
     check(logs.status == 200 && Json::parse(logs.body).is(json_type_array), "audit log must be readable");
+    check(logs.body.find("transaction_failed") != std::string::npos, "business failure must have an audit event");
     check(logs.body.find("test-user-password") == std::string::npos, "password must not appear in audit");
     check(logs.body.find("20260001") == std::string::npos, "student number must be redacted in audit");
     check(call(app, "PATCH", "/users/" + student_id, R"({"active":false})", admin).status == 200, "disable user");
@@ -66,6 +73,19 @@ int main() {
     const auto career = login(app, "career", "test-user-password");
     Request career_request{"GET", "/", {{"authorization", "Bearer " + career}}, {}, {}, {}};
     check(app.security()->authorize(career_request, "career.strategy.write").role == "career_center", "global strategy permission");
+    check(call(app, "PUT", "/roles/career_center", R"({"name":"就业指导中心","scope_type":"all","permissions":["career.jobs.read"]})", admin).status == 200, "role update");
+    denied = false;
+    try { app.security()->authorize(career_request, "career.strategy.write"); }
+    catch (const security::ApiError& e) { denied = e.status == 403; }
+    check(denied, "role change must take effect on an existing session");
+    app.security()->register_permission("custom.records.read", "自定义模块读取");
+    check(call(app, "PUT", "/roles/custom_reader", R"({"name":"扩展角色","scope_type":"college","permissions":["custom.records.read"]})", admin).status == 200, "other modules can register permissions");
+    check(call(app, "PUT", "/roles/custom_reader", R"({"name":"扩展角色","scope_type":"college","permissions":["unknown.permission"]})", admin).status == 400, "reject unknown permission codes");
+    check(call(app, "PUT", "/roles/college_operator", R"({"name":"院级账号","scope_type":"college","permissions":["users.manage"]})", admin).status == 200, "create scoped role");
+    check(call(app, "POST", "/users", R"({"username":"limited","password":"test-user-password","role":"college_operator","org_id":"college-a"})", admin).status == 201, "create scoped user");
+    const auto limited = login(app, "limited", "test-user-password");
+    check(call(app, "GET", "/users", "", limited).status == 403, "scoped role must not administer all accounts");
+    check(call(app, "PUT", "/roles/system_admin", R"({"name":"x","scope_type":"all","permissions":[]})", admin).status == 409, "protect reserved administrator role");
     check(call(app, "POST", "/logout", "", career).status == 200, "logout");
     check(call(app, "GET", "/me", "", career).status == 401, "logout revokes");
     now += 3601;

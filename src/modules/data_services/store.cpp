@@ -119,7 +119,9 @@ Json body(const Request& request) {
     if (!value.is(json_type_object)) throw std::invalid_argument("body must be a JSON object");
     return value;
 }
-Response json(int status, const Json& value) { return {status, "application/json; charset=utf-8", value.dump()}; }
+Response json(int status, const Json& value) {
+    return {status, "application/json; charset=utf-8", value.dump(), {{"Cache-Control", "no-store"}}};
+}
 security::Scope parse_scope(const Json& value) {
     security::Scope scope;
     scope.type = text(value, "type", 16);
@@ -134,13 +136,17 @@ security::Scope parse_scope(const Json& value) {
 Store::Store(const AppOptions& options) : clock_(options.clock) {
     if (!clock_) clock_ = [] { return std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count(); };
-    check(sqlite3_open(options.database_path.c_str(), &db), db);
+    if (sqlite3_open(options.database_path.c_str(), &db) != SQLITE_OK) {
+        const std::string message = sqlite3_errmsg(db); sqlite3_close(db); db = nullptr;
+        throw std::runtime_error(message);
+    }
     try {
         sqlite3_busy_timeout(db, 3000);
         execute(db, "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;");
         execute(db, R"SQL(
             CREATE TABLE IF NOT EXISTS roles(code TEXT PRIMARY KEY, name TEXT NOT NULL,
                 scope_type TEXT NOT NULL, permissions TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS permission_catalog(code TEXT PRIMARY KEY, name TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL, salt TEXT NOT NULL, role TEXT NOT NULL REFERENCES roles(code),
                 org_id TEXT NOT NULL, class_id TEXT NOT NULL, student_no TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
@@ -173,6 +179,8 @@ Store::Store(const AppOptions& options) : clock_(options.clock) {
         Transaction tx(db);
         const auto role = [&](const std::string& code, const std::string& name, const std::string& scope,
                               std::vector<std::string> permissions) {
+            for (const auto& code : permissions)
+                Statement(db, "INSERT OR IGNORE INTO permission_catalog VALUES(?,?)").bind(1, code).bind(2, code).step();
             Statement(db, "INSERT OR IGNORE INTO roles VALUES(?,?,?,?)").bind(1, code).bind(2, name).bind(3, scope)
                 .bind(4, strings(permissions).dump()).step();
         };

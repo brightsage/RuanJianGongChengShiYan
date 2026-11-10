@@ -6,6 +6,7 @@
 #include <exception>
 #include <cstdlib>
 #include <filesystem>
+#include <sys/stat.h>
 #include <iostream>
 #include <string>
 
@@ -24,6 +25,7 @@ int main(int argc, char** argv) {
         return 2;
     }
     try {
+        ::umask(0077);
         platform::AppOptions options;
         const auto* db = std::getenv("PLATFORM_DB");
         options.database_path = db ? db : "data/platform.sqlite3";

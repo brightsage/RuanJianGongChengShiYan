@@ -55,4 +55,7 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME http_smoke
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/http_smoke.py
                 $<TARGET_FILE:platform_server>)
+    add_test(NAME data_services_http
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/data_services_http.py
+                $<TARGET_FILE:platform_server>)
 endif()

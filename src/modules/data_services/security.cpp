@@ -2,8 +2,8 @@
 
 #include <openssl/crypto.h>
 #include <algorithm>
-#include <set>
 #include <limits>
+#include <exception>
 
 namespace platform::security {
 using namespace data_services;
@@ -56,6 +56,13 @@ Principal Security::authenticate(const Request& request) const {
 bool Security::permitted(const Principal& p, const std::string& permission) const {
     return std::find(p.permissions.begin(), p.permissions.end(), permission) != p.permissions.end();
 }
+void Security::register_permission(const std::string& code, const std::string& name) const {
+    if (code.empty() || code.size() > 100 || code.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_.-") != std::string::npos ||
+        name.empty() || name.size() > 200) throw std::invalid_argument("invalid permission metadata");
+    std::lock_guard<std::recursive_mutex> lock(store_->mutex);
+    Statement(store_->db, "INSERT INTO permission_catalog VALUES(?,?) ON CONFLICT(code) DO UPDATE SET name=excluded.name")
+        .bind(1, code).bind(2, name).step();
+}
 Principal Security::authorize(const Request& request, const std::string& permission, const Scope& resource) const {
     Principal p;
     try { p = authenticate(request); }
@@ -64,7 +71,10 @@ Principal Security::authorize(const Request& request, const std::string& permiss
         AuditEvent event{"authentication.denied", "permission", permission};
         event.outcome = "failure"; event.reason = "unauthorized"; store_->audit("anonymous", event); throw;
     }
-    if (!permitted(p, permission) || (!resource.type.empty() && !contains(p.scope, resource))) {
+    const bool global_admin = permission == "users.manage" || permission == "roles.manage" ||
+        permission == "masking.manage" || permission == "audit.read";
+    if (!permitted(p, permission) || (global_admin && p.scope.type != "all") ||
+        (!resource.type.empty() && !contains(p.scope, resource))) {
         std::lock_guard<std::recursive_mutex> lock(store_->mutex);
         AuditEvent event{"permission.denied", "permission", permission};
         event.outcome = "failure"; event.reason = "forbidden";
@@ -74,11 +84,19 @@ Principal Security::authorize(const Request& request, const std::string& permiss
     return p;
 }
 void Security::audited_write(const Principal& actor, AuditEvent& event, const std::function<void(sqlite3*)>& write) const {
+    if (actor.user_id.empty() || event.action.empty() || event.resource_type.empty() || event.resource_id.empty() || event.outcome != "success")
+        throw std::invalid_argument("incomplete successful write audit event");
     std::lock_guard<std::recursive_mutex> lock(store_->mutex);
-    Transaction tx(store_->db);
-    write(store_->db);
-    store_->audit(actor.user_id, event);
-    tx.commit();
+    try {
+        Transaction tx(store_->db);
+        write(store_->db); store_->audit(actor.user_id, event); tx.commit();
+    } catch (...) {
+        const auto original = std::current_exception();
+        auto failed = event; failed.outcome = "failure"; failed.reason = "transaction_failed";
+        try { store_->audit(actor.user_id, failed); }
+        catch (...) { throw ApiError(500, "audit_unavailable", "write rolled back; audit storage unavailable"); }
+        std::rethrow_exception(original);
+    }
 }
 }  // namespace platform::security
 
@@ -107,9 +125,6 @@ void validate_scope_identity(const std::string& type, const std::string& org,
     if ((type != "all" && org.empty()) || ((type == "class" || type == "self") && cls.empty()) ||
         (type == "self" && student.empty())) throw std::invalid_argument("role requires organization, class or student identity");
 }
-const std::set<std::string> permissions = {"users.manage", "roles.manage", "masking.manage", "audit.read",
-    "services.publish", "grants.approve", "services.read", "grants.apply", "career.jobs.read", "career.jobs.write",
-    "career.jobs.publish", "career.strategy.write", "career.recommendations.read"};
 }  // namespace
 
 void install_identity_routes(App& app, const std::shared_ptr<security::Security>& sec) {
@@ -161,7 +176,11 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
     add("GET", "/users", [sec, store](const Request& request) {
         sec->authorize(request, "users.manage");
         Statement rows(store->db, "SELECT id,username,role,org_id,class_id,student_no,active FROM users ORDER BY username");
-        auto result = Json::array(); while (rows.step()) result.push(user_json(rows)); return json(200, result);
+        auto result = Json::array(); while (rows.step()) {
+            auto item = user_json(rows);
+            if (!rows.text(5).empty()) item.set("student_no", Json::text("***"));
+            result.push(item);
+        } return json(200, result);
     });
     add("POST", "/users", [sec, store](const Request& request) {
         const auto p = sec->authorize(request, "users.manage"); const auto input = body(request);
@@ -217,7 +236,9 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         return json(200, Json::object());
     });
     add("GET", "/roles", [sec, store](const Request& request) {
-        sec->authorize(request, "roles.manage"); auto result = Json::array();
+        const auto actor = sec->authenticate(request);
+        sec->authorize(request, sec->permitted(actor, "roles.manage") ? "roles.manage" : "users.manage");
+        auto result = Json::array();
         Statement rows(store->db, "SELECT code,name,scope_type,permissions FROM roles ORDER BY code");
         while (rows.step()) {
             auto item = Json::object(); item.set("code", Json::text(rows.text(0))); item.set("name", Json::text(rows.text(1)));
@@ -233,7 +254,10 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
             throw std::invalid_argument("invalid role code");
         if (type != "all" && type != "college" && type != "class" && type != "self") throw std::invalid_argument("invalid scope type");
         const auto codes = string_list(input.get("permissions"));
-        for (const auto& permission : codes) if (!permissions.count(permission)) throw std::invalid_argument("unknown permission code");
+        for (const auto& permission : codes) {
+            Statement known(store->db, "SELECT 1 FROM permission_catalog WHERE code=?"); known.bind(1, permission);
+            if (!known.step()) throw std::invalid_argument("unknown permission code");
+        }
         Statement users(store->db, "SELECT org_id,class_id,student_no FROM users WHERE role=?"); users.bind(1, code);
         while (users.step()) validate_scope_identity(type, users.text(0), users.text(1), users.text(2));
         Statement old(store->db, "SELECT name,scope_type,permissions FROM roles WHERE code=?"); old.bind(1, code);
@@ -247,6 +271,14 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
                 .bind(1, code).bind(2, name).bind(3, type).bind(4, strings(codes).dump()).step();
         });
         return json(200, input);
+    });
+    add("GET", "/permissions", [sec, store](const Request& request) {
+        const auto actor = sec->authenticate(request);
+        sec->authorize(request, sec->permitted(actor, "roles.manage") ? "roles.manage" : "users.manage");
+        Statement rows(store->db, "SELECT code,name FROM permission_catalog ORDER BY code"); auto out = Json::array();
+        while (rows.step()) {
+            auto item = Json::object(); item.set("code", Json::text(rows.text(0))); item.set("name", Json::text(rows.text(1))); out.push(item);
+        } return json(200, out);
     });
     add("GET", "/audit-logs", [sec, store](const Request& request) {
         sec->authorize(request, "audit.read"); auto result = Json::array(); const auto query = query_parameters(request.query);
