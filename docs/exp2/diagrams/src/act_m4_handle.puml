@@ -1,0 +1,34 @@
+@startuml
+skinparam defaultFontName "Microsoft YaHei"
+
+start
+:接收处置请求\n(POST /alerts/:alert_id/handle);
+:解析 alert_id 与 body;
+if (预警存在?) then (否)
+  :返回 404;
+  stop
+endif
+if (状态为 closed?) then (是)
+  :返回 409\n(历史不可修改);
+  stop
+endif
+if (action 类型?) then (close)
+  if (measures 为空?) then (是)
+    :返回 400\n(未填措施不得关闭);
+    stop
+  endif
+  :status = closed;
+elseif (not_applicable)
+  if (note 为空?) then (是)
+    :返回 400\n(需填写不适用原因);
+    stop
+  endif
+  :status = not_applicable;
+else (follow)
+  :status = claimed\n(记录跟进);
+endif
+:追加 Intervention 记录;
+:返回 200 + alert_json;
+stop
+
+@enduml

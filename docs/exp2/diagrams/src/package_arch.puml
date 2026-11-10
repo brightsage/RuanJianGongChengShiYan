@@ -1,0 +1,50 @@
+@startuml
+skinparam packageStyle rectangle
+skinparam defaultFontName "Microsoft YaHei"
+skinparam componentStyle rectangle
+left to right direction
+
+package "前端应用层" {
+  [web/index.html\n(测试台页面)] as web
+  [web/app.js\n(路由列表 + 请求面板)] as js
+  [规划：Vue 原型页面] as vue
+}
+
+package "接口层 src/" {
+  [http_server.cpp\n(HTTP 解析 / 静态资源)] as http
+  [app.cpp\n(App 路由表 / App::handle)] as app
+}
+
+package "领域层 src/modules/" {
+  [M1 数据采集\n data_ingestion] as m1
+  [M2 数据治理\n data_governance] as m2
+  [M3 学生画像\n student_profile] as m3
+  [M4 学业分析与预警\n academic_alerts] as m4
+  [M5 职业推荐\n career_recommendation] as m5
+  [M6 数据服务\n data_services] as m6
+}
+
+package "数据层" {
+  [内存 Store\n alerts_store.cpp] as mem
+  [MySQL 表\n(规划)] as db
+}
+
+web --> js
+vue --> app
+js --> http
+http --> app
+app --> m1
+app --> m2
+app --> m3
+app --> m4
+app --> m5
+app --> m6
+m1 ..> mem
+m2 ..> mem
+m3 ..> mem
+m4 --> mem
+m5 ..> mem
+m6 ..> mem
+mem ..> db : 后续替换
+
+@enduml

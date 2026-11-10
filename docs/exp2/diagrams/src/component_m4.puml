@@ -1,0 +1,25 @@
+@startuml
+skinparam defaultFontName "Microsoft YaHei"
+skinparam componentStyle rectangle
+
+package "academic_alerts 模块" {
+  [module.cpp\n路由注册] as mod
+  [alerts_api.cpp\n9 个 handler] as api
+  [alerts_store.cpp\n数据 + 领域逻辑] as store
+  [alerts.hpp\n模型与声明] as hpp
+  [json_util.hpp\nJSON / 查询串] as json
+}
+
+[app.cpp\nApp::handle] as app
+[web/app.js] as web
+
+web --> app : HTTP
+app --> mod : make_app() 时注册
+mod --> api : 登记 9 条路由
+api --> store : 查询/更新
+api --> json : 序列化
+store --> hpp
+api --> hpp
+mod --> hpp
+
+@enduml
