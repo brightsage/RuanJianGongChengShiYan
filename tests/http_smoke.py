@@ -173,6 +173,74 @@ def career_smoke(directory):
     assert demo_db.is_file() and not Path(directory, "platform.db").exists()
 
 
+def recommendation_smoke(directory):
+    def student(port, method, path, data=None, person="demo-1", expected=200):
+        headers = dict(DEMO, **{"X-Career-Demo-Student": person})
+        status, body = request(port, method, PREFIX + "/recommendations" + path,
+                               json.dumps(data) if data is not None else None, headers)
+        assert status == expected, (method, path, status, body)
+        return json.loads(body)
+
+    with server(directory, demo=True) as port:
+        assert career_api(port, "GET", "/mode") == {"demo": True}
+        student(port, "POST", "/query", {}, expected=409)
+        job = {
+            "title": "后端实习", "industry": "信息技术", "job_type": "internship",
+            "description": "样例", "requirements": [
+                {"competency_code": "programming", "threshold": 80, "weight": 3},
+                {"competency_code": "databases", "threshold": 80, "weight": 1},
+            ],
+        }
+
+        def create(title, published=True, **overrides):
+            saved = career_api(port, "POST", "/jobs", dict(job, title=title, **overrides), 201)
+            if published:
+                career_api(port, "PUT", f"/jobs/{saved['id']}/status", {"status": "published"})
+            return saved["id"]
+
+        job_id = create("后端实习")
+        tied_id = create("数据实习")
+        create("校招", job_type="campus")
+        create("其他行业", industry="制造")
+        create("草稿", published=False)
+        career_api(port, "PUT", "/strategy", {
+            "algorithm": "pass_and_proximity", "min_score": 70, "pass_weight": 60,
+            "proximity_weight": 40, "allowed_industries": ["信息技术"],
+            "allowed_job_types": ["internship"],
+        })
+        rows = student(port, "POST", "/query", {})["items"]
+        assert [row["job_id"] for row in rows] == [job_id, tied_id]
+        assert [row["score"] for row in rows] == [80, 80]
+        assert student(port, "POST", "/query", {"min_score": 80})["items"] == rows
+        assert student(port, "POST", "/query", {"min_score": 80.01})["items"] == []
+        assert student(port, "POST", "/query", {"industry": "制造"})["items"] == []
+        assert student(port, "POST", "/query", {"term": "missing"}, expected=409)
+        assert student(port, "POST", "/query", {"student_no": "demo-2"}, expected=400)
+        rec = f"/{rows[0]['id']}"
+        reason = student(port, "GET", rec + "/reason")
+        assert reason["score"] == 80 and reason["criteria"][1]["gap"] == 40
+        assert reason["criteria"][1]["status"] == "below_threshold"
+        other = student(port, "POST", "/query", {}, person="demo-2")["items"][0]
+        other_reason = student(port, "GET", f"/{other['id']}/reason", person="demo-2")
+        assert other["score"] == 75 and other_reason["criteria"][1]["status"] == "missing"
+        assert other_reason["criteria"][1]["student_score"] is None
+        student(port, "GET", rec + "/reason", person="demo-2", expected=404)
+        initial = {"choice": "interested", "reason": "方向符合"}
+        student(port, "PUT", rec + "/feedback", initial, person="demo-2", expected=404)
+        student(port, "PUT", rec + "/feedback", dict(initial, reason=" "), expected=400)
+        feedback = student(port, "PUT", rec + "/feedback", initial)
+        assert student(port, "PUT", rec + "/feedback", initial) == feedback
+        feedback = student(port, "PUT", rec + "/feedback",
+                           {"choice": "not_interested", "reason": "已确定其他方向"})
+        assert student(port, "POST", "/query", {})["items"][0]["feedback"] == feedback
+        career_api(port, "PUT", f"/jobs/{job_id}/status", {"status": "withdrawn"})
+        assert [row["job_id"] for row in student(port, "POST", "/query", {})["items"]] == [tied_id]
+        assert student(port, "GET", rec + "/reason") == dict(reason, feedback=feedback)
+
+    with server(directory, demo=True) as port:
+        assert student(port, "GET", rec + "/reason") == dict(reason, feedback=feedback)
+
+
 def authenticated_career_smoke(directory):
     def call(port, method, path, data=None, token=None, expected=200):
         headers = {"Content-Type": "application/json"}
@@ -226,6 +294,8 @@ def main():
         career_smoke(directory)
         platform_smoke(directory)
         authenticated_career_smoke(directory)
+    with tempfile.TemporaryDirectory() as directory:
+        recommendation_smoke(directory)
 
 
 if __name__ == "__main__":

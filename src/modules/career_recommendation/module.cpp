@@ -1,6 +1,7 @@
 #include "platform/modules.hpp"
 
 #include "catalog.hpp"
+#include "recommendations.hpp"
 #include "platform/security.hpp"
 
 #include <charconv>
@@ -23,13 +24,13 @@ Response error_response(int status, const std::string& error) {
     return json_response(status, Json::Object{{"error", error}});
 }
 
-std::int64_t job_id(const Request& request) {
+std::int64_t resource_id(const Request& request) {
     const auto& value = request.path_params.at("id");
     std::int64_t id = 0;
     const auto end = value.data() + value.size();
     const auto parsed = std::from_chars(value.data(), end, id);
     if (parsed.ec != std::errc{} || parsed.ptr != end || id <= 0) {
-        throw career::CatalogError(400, "岗位 ID 必须是正整数");
+        throw career::CatalogError(400, "ID 必须是正整数");
     }
     return id;
 }
@@ -72,6 +73,9 @@ void register_career_recommendation(App& app) {
     const bool demo_enabled = demo_env != nullptr && std::string_view(demo_env) == "1";
 
     const auto access = app.security();
+    app.add_module_route(module_id, "GET", "/mode", [demo_enabled](const Request&) {
+        return json_response(200, Json::Object{{"demo", demo_enabled}});
+    });
     const auto add = [&](const char* method, const char* path, const char* permission,
                          const char* action, const char* resource, auto handle) {
         app.add_module_route(module_id, method, path,
@@ -123,7 +127,7 @@ void register_career_recommendation(App& app) {
     });
     add("PUT", "/jobs/:id", "career.jobs.write", "career.job.update", "job",
         [](career::Catalog& catalog, const Request& request, security::AuditEvent& event) {
-        const auto id = job_id(request);
+        const auto id = resource_id(request);
         event.resource_id = std::to_string(id);
         const auto job = career::validate_job(Json::parse(request.body));
         const auto before = catalog.get_job(id);
@@ -133,7 +137,7 @@ void register_career_recommendation(App& app) {
     });
     add("PUT", "/jobs/:id/status", "career.jobs.publish", "career.job.publish", "job",
         [](career::Catalog& catalog, const Request& request, security::AuditEvent& event) {
-        const auto id = job_id(request);
+        const auto id = resource_id(request);
         event.resource_id = std::to_string(id);
         const auto status = career::validate_status(Json::parse(request.body));
         const auto before = catalog.get_job(id);
@@ -156,5 +160,79 @@ void register_career_recommendation(App& app) {
         record_changes(event, before, saved);
         return json_response(200, saved);
     });
+
+    const auto add_student = [&](const char* method, const char* path, bool writes, auto handle) {
+        app.add_module_route(module_id, method, path,
+            [demo_enabled, access, writes, handle](const Request& request) -> Response {
+                try {
+                    std::string student_no;
+                    const auto run = [&](Database& db) {
+                        career::Catalog catalog(db);
+                        career::Recommendations recommendations(db);
+                        if (writes) db.begin();
+                        try {
+                            auto response = handle(db, catalog, recommendations, request, student_no, demo_enabled);
+                            if (writes) db.commit();
+                            return response;
+                        } catch (...) {
+                            if (writes) db.rollback();
+                            throw;
+                        }
+                    };
+                    if (demo_enabled) {
+                        if (!is_demo_request(request) || !demo_database_is_separate()) {
+                            return error_response(503, "职业推荐演示未启用或数据库未隔离");
+                        }
+                        const auto student = request.headers.find("x-career-demo-student");
+                        if (student == request.headers.end() ||
+                            (student->second != "demo-1" && student->second != "demo-2")) {
+                            return error_response(400, "请选择演示学生");
+                        }
+                        student_no = student->second;
+                        Database db(demo_database);
+                        return run(db);
+                    }
+                    if (!access) return error_response(503, "统一权限服务不可用");
+                    const auto actor = access->authorize(request, "career.recommendations.read");
+                    if (actor.student_no.empty()) {
+                        throw security::ApiError(403, "forbidden", "当前账号没有绑定学生学号");
+                    }
+                    student_no = actor.student_no;
+                    Response response;
+                    access->with_connection([&](sqlite3* connection) {
+                        Database db(*connection);
+                        response = run(db);
+                    });
+                    return response;
+                } catch (const career::CatalogError& error) {
+                    return error_response(error.status, error.what());
+                } catch (const JsonError&) {
+                    return error_response(400, "JSON 格式、必填字段或字段类型有误");
+                } catch (const DbError&) {
+                    return error_response(500, "职业推荐数据库操作失败");
+                } catch (const std::filesystem::filesystem_error&) {
+                    return error_response(500, "职业推荐数据库路径不可用");
+                }
+            });
+    };
+    add_student("POST", "/recommendations/query", true,
+        [](Database& db, career::Catalog& catalog, career::Recommendations& recommendations,
+           const Request& request, const std::string& student_no, bool demo) {
+            const auto filter = career::validate_filter(Json::parse(request.body));
+            const auto profile = demo ? career::demo_profile(student_no, filter.term)
+                                      : career::load_profile(db, student_no, filter.term);
+            return json_response(200, recommendations.query(catalog, profile, filter));
+        });
+    add_student("GET", "/recommendations/:id/reason", false,
+        [](Database&, career::Catalog&, career::Recommendations& recommendations,
+           const Request& request, const std::string& student_no, bool) {
+            return json_response(200, recommendations.reason(student_no, resource_id(request)));
+        });
+    add_student("PUT", "/recommendations/:id/feedback", true,
+        [](Database&, career::Catalog&, career::Recommendations& recommendations,
+           const Request& request, const std::string& student_no, bool) {
+            const auto feedback = career::validate_feedback(Json::parse(request.body));
+            return json_response(200, recommendations.save_feedback(student_no, resource_id(request), feedback));
+        });
 }
 }  // namespace platform

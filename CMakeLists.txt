@@ -36,6 +36,8 @@ add_library(platform_core
     src/modules/academic_alerts/module.cpp
     src/modules/career_recommendation/module.cpp
     src/modules/career_recommendation/catalog.cpp
+    src/modules/career_recommendation/recommendations.cpp
+    src/modules/career_recommendation/profile.cpp
     src/modules/data_services/module.cpp
     src/modules/data_services/store.cpp
     src/modules/data_services/security.cpp
@@ -65,6 +67,9 @@ foreach(suite IN ITEMS security service gateway)
     target_link_libraries(${suite}_tests PRIVATE platform_core)
     add_test(NAME ${suite}_tests COMMAND ${suite}_tests)
 endforeach()
+add_executable(career_profile_tests tests/career_profile_test.cpp)
+target_link_libraries(career_profile_tests PRIVATE platform_core)
+add_test(NAME career_profile_tests COMMAND career_profile_tests)
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)

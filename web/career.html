@@ -3,18 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>职业发展推荐 · 就业指导中心</title>
+  <title>职业发展推荐 · 学生成长中台</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/career.js" defer></script>
 </head>
 <body>
   <header>
     <h1>职业发展推荐</h1>
-    <p>就业指导中心 · 本地演示</p>
+    <p id="career-mode">正在连接平台…</p>
   </header>
   <main class="career">
-    <nav><a href="/">返回平台首页</a></nav>
-    <section>
+    <nav class="career-actions"><a href="/">返回平台首页</a><button type="button" id="career-logout" hidden>退出登录</button></nav>
+    <section id="career-login" hidden>
+      <h2>统一登录</h2>
+      <form id="login-form">
+        <div class="career-grid">
+          <label>用户名<input name="username" autocomplete="username" required></label>
+          <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+        </div>
+        <button type="submit">登录</button>
+      </form>
+    </section>
+    <div id="demo-views" class="career-actions" hidden>
+      <button type="button" id="demo-manager">就业指导中心</button>
+      <button type="button" id="demo-student">学生视图</button>
+    </div>
+    <p id="career-message" role="status"></p>
+    <section data-manager hidden>
       <h2 id="job-heading">新增岗位</h2>
       <form id="job-form">
         <fieldset id="job-fields" disabled>
@@ -40,11 +55,11 @@
       </form>
       <p id="jobs-message" role="status"></p>
     </section>
-    <section>
+    <section data-manager hidden>
       <h2>岗位目录</h2>
       <div id="jobs" class="modules"></div>
     </section>
-    <section>
+    <section data-manager hidden>
       <h2>推荐策略</h2>
       <form id="strategy-form">
         <fieldset id="strategy-fields" disabled>
@@ -72,6 +87,25 @@
       </form>
       <p id="strategy-message" role="status"></p>
     </section>
+    <section id="student-view" hidden>
+      <h2>我的推荐岗位</h2>
+      <form id="recommendation-form">
+        <div class="career-grid">
+          <label id="demo-student-field" hidden>演示学生
+            <select name="demo_student">
+              <option value="demo-1">学生 A（含数据库能力）</option>
+              <option value="demo-2">学生 B（缺数据库能力）</option>
+            </select>
+          </label>
+          <label>画像周期<input name="term" maxlength="80" placeholder="留空使用最近周期"></label>
+          <label>筛选行业<input name="industry" maxlength="120" placeholder="留空表示不限"></label>
+          <label>最低匹配分<input name="min_score" type="number" min="0" max="100" step="0.01"></label>
+        </div>
+        <button type="submit">查看推荐</button>
+      </form>
+      <p id="recommendation-message" role="status"></p>
+      <div id="recommendation-list" class="modules"></div>
+    </section>
   </main>
   <template id="requirement-template">
     <div class="career-grid requirement">
@@ -80,6 +114,20 @@
       <label>权重<input name="weight" type="number" max="100" step="any" value="1" required></label>
       <button type="button">移除此项</button>
     </div>
+  </template>
+  <template id="feedback-template">
+    <form>
+      <label>意向
+        <select name="choice" required>
+          <option value="">请选择</option>
+          <option value="interested">感兴趣</option>
+          <option value="not_interested">不感兴趣</option>
+        </select>
+      </label>
+      <label>反馈原因<textarea name="reason" rows="2" maxlength="2000" required></textarea></label>
+      <button type="submit">保存反馈</button>
+      <p role="status"></p>
+    </form>
   </template>
 </body>
 </html>

@@ -11,20 +11,30 @@ const jobTypes = { campus: "校招", internship: "实习" };
 const statusLabels = { draft: "草稿", published: "已发布", withdrawn: "已下架" };
 let editing = null;
 let jobBusy = false;
+let demo = false;
+let token = "";
 
-async function api(path, method = "GET", data) {
-  const response = await fetch(prefix + path, {
+async function request(path, method = "GET", data, extraHeaders = {}) {
+  const headers = { "Content-Type": "application/json", ...extraHeaders };
+  if (token) headers.Authorization = "Bearer " + token;
+  const response = await fetch(path, {
     method,
-    headers: { "X-Career-Demo": "1", "Content-Type": "application/json" },
+    headers,
     body: data === undefined ? undefined : JSON.stringify(data),
   });
   const body = await response.json();
   if (!response.ok) {
-    const error = new Error(body.error);
+    const error = new Error(body.message ?? body.error);
     error.status = response.status;
     throw error;
   }
   return body;
+}
+
+function api(path, method = "GET", data, student) {
+  const headers = demo ? { "X-Career-Demo": "1" } : {};
+  if (demo && student) headers["X-Career-Demo-Student"] = student;
+  return request(prefix + path, method, data, headers);
 }
 
 function addRequirement(values) {
@@ -199,8 +209,183 @@ strategyForm.addEventListener("submit", async (event) => {
   }
 });
 
-editJob();
-loadJobs().then(() => { jobFields.disabled = false; }).catch((error) => {
-  jobsMessage.textContent = error.message;
+const login = document.querySelector("#career-login");
+const mode = document.querySelector("#career-mode");
+const message = document.querySelector("#career-message");
+const logout = document.querySelector("#career-logout");
+const studentView = document.querySelector("#student-view");
+const recommendationForm = document.querySelector("#recommendation-form");
+const recommendationList = document.querySelector("#recommendation-list");
+const recommendationMessage = document.querySelector("#recommendation-message");
+const demoStudent = recommendationForm.elements.demo_student;
+const securityPrefix = "/api/modules/data-services";
+let studentViewVersion = 0;
+
+function resetRecommendations() {
+  studentViewVersion += 1;
+  recommendationList.replaceChildren();
+  recommendationMessage.textContent = "";
+}
+
+function showView(view) {
+  login.hidden = demo || !!token;
+  logout.hidden = !token;
+  studentView.hidden = view !== "student";
+  resetRecommendations();
+  for (const section of document.querySelectorAll("[data-manager]")) section.hidden = view !== "manager";
+  if (view === "manager") {
+    jobFields.disabled = true;
+    strategyFields.disabled = true;
+    editJob();
+    loadJobs().then(() => { jobFields.disabled = false; }).catch((error) => {
+      jobsMessage.textContent = error.message;
+    });
+    loadStrategy();
+  }
+}
+
+document.querySelector("#demo-manager").addEventListener("click", () => showView("manager"));
+document.querySelector("#demo-student").addEventListener("click", () => showView("student"));
+demoStudent.addEventListener("change", resetRecommendations);
+document.querySelector("#login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector("button");
+  submit.disabled = true;
+  try {
+    token = (await request(securityPrefix + "/login", "POST", Object.fromEntries(new FormData(form)))).access_token;
+    const identity = await request(securityPrefix + "/me");
+    message.textContent = "";
+    if (identity.student_no && identity.permissions.includes("career.recommendations.read")) {
+      mode.textContent = "学生 · 本人推荐";
+      showView("student");
+    } else if (identity.scope.type === "all" && identity.permissions.some((code) =>
+      code.startsWith("career.jobs.") || code === "career.strategy.write")) {
+      mode.textContent = "就业指导中心 · 正式模式";
+      showView("manager");
+    } else {
+      message.textContent = "当前账号没有职业推荐权限";
+      showView("");
+    }
+  } catch (error) {
+    token = "";
+    message.textContent = error.message;
+    showView("");
+  } finally {
+    form.reset();
+    submit.disabled = false;
+  }
 });
-loadStrategy();
+
+logout.addEventListener("click", async () => {
+  logout.disabled = true;
+  try {
+    await request(securityPrefix + "/logout", "POST");
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    token = "";
+    logout.disabled = false;
+    mode.textContent = "正式模式 · 请登录";
+    showView("");
+  }
+});
+
+function renderReason(container, detail, student, viewVersion) {
+  const description = document.createElement("p");
+  description.textContent = detail.job.description;
+  const items = document.createElement("ul");
+  for (const item of detail.criteria) {
+    const entry = document.createElement("li");
+    const result = item.status === "missing" ? "画像缺失" :
+      (item.status === "passed" ? `达标（${item.student_score} 分）` :
+        `${item.student_score} 分，差 ${item.gap} 分`);
+    entry.textContent = `${item.competency_code} · 达标线 ${item.threshold} · 权重 ${item.weight} · ${result} · 贡献 ${item.contribution.toFixed(2)} 分`;
+    items.append(entry);
+  }
+  const form = document.querySelector("#feedback-template").content.firstElementChild.cloneNode(true);
+  const status = form.querySelector("[role=status]");
+  if (detail.feedback) {
+    form.elements.choice.value = detail.feedback.choice;
+    form.elements.reason.value = detail.feedback.reason;
+    status.textContent = "已保存反馈";
+  }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (viewVersion !== studentViewVersion) return;
+    const submit = form.querySelector("button");
+    submit.disabled = true;
+    try {
+      await api(`/recommendations/${detail.id}/feedback`, "PUT", Object.fromEntries(new FormData(form)), student);
+      status.textContent = "已保存反馈";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  container.replaceChildren(description, items, form);
+}
+
+function renderRecommendation(item, student, viewVersion) {
+  const card = document.createElement("article");
+  const title = document.createElement("h3");
+  title.textContent = item.title;
+  const summary = document.createElement("p");
+  summary.textContent = `${item.industry} · ${jobTypes[item.job_type]} · ${item.score.toFixed(2)} 分`;
+  const details = document.createElement("details");
+  const toggle = document.createElement("summary");
+  toggle.textContent = "查看匹配理由与反馈";
+  const content = document.createElement("div");
+  details.append(toggle, content);
+  let loading = false;
+  let loaded = false;
+  details.addEventListener("toggle", async () => {
+    if (!details.open || loading || loaded || viewVersion !== studentViewVersion) return;
+    loading = true;
+    content.textContent = "正在读取匹配理由…";
+    try {
+      const detail = await api(`/recommendations/${item.id}/reason`, "GET", undefined, student);
+      if (viewVersion !== studentViewVersion) return;
+      renderReason(content, detail, student, viewVersion);
+      loaded = true;
+    } catch (error) {
+      content.textContent = error.message;
+    } finally {
+      loading = false;
+    }
+  });
+  card.append(title, summary, details);
+  return card;
+}
+
+recommendationForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  resetRecommendations();
+  const viewVersion = studentViewVersion;
+  const filter = {};
+  for (const field of ["term", "industry"]) {
+    const value = recommendationForm.elements[field].value.trim();
+    if (value) filter[field] = value;
+  }
+  const min = recommendationForm.elements.min_score;
+  if (min.value !== "") filter.min_score = min.valueAsNumber;
+  const student = demoStudent.value;
+  recommendationMessage.textContent = "正在查询…";
+  try {
+    const result = await api("/recommendations/query", "POST", filter, student);
+    if (viewVersion !== studentViewVersion) return;
+    recommendationMessage.textContent = `画像周期 ${result.term} · ${result.items.length} 个匹配岗位`;
+    recommendationList.replaceChildren(...result.items.map((item) => renderRecommendation(item, student, viewVersion)));
+  } catch (error) {
+    if (viewVersion === studentViewVersion) recommendationMessage.textContent = error.message;
+  }
+});
+
+api("/mode").then((result) => {
+  demo = result.demo;
+  document.querySelector("#demo-views").hidden = !demo;
+  document.querySelector("#demo-student-field").hidden = !demo;
+  mode.textContent = demo ? "本地演示 · 独立样例数据" : "正式模式 · 请登录";
+  showView(demo ? "manager" : "");
+}).catch((error) => { message.textContent = error.message; });

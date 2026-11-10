@@ -30,3 +30,7 @@ pre { background: #102033; color: #e8f1fa; border-radius: .5rem; padding: 1rem; 
 .career article { overflow-wrap: anywhere; }
 .career article p { margin-top: .4rem; }
 .career button:disabled { opacity: .6; cursor: default; }
+.career [hidden] { display: none; }
+.career summary { margin: .75rem 0; cursor: pointer; }
+.career nav { align-items: center; }
+.career #career-message:empty { display: none; }
