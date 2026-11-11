@@ -35,6 +35,7 @@ Tag read_tag(const DbRow& row) {
     tag.name = row.get_string("name");
     tag.dimension = row.get_string("dimension");
     tag.description = row.get_string("description");
+    tag.rule = row.get_string("rule");
     return tag;
 }
 
@@ -43,6 +44,7 @@ StudentTag read_student_tag(const DbRow& row) {
     tag.id = row.get_int64("id");
     tag.student_id = row.get_string("student_id");
     tag.tag_code = row.get_string("tag_code");
+    tag.term = row.get_string("term");
     tag.evidence = row.get_string("evidence");
     tag.calculated_at = row.get_string("calculated_at");
     return tag;
@@ -87,16 +89,18 @@ CREATE TABLE IF NOT EXISTS sp_tag (
     code TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     dimension TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT ''
+    description TEXT NOT NULL DEFAULT '',
+    rule TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS sp_student_tag (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id TEXT NOT NULL REFERENCES sp_student(student_id) ON DELETE CASCADE,
     tag_code TEXT NOT NULL REFERENCES sp_tag(code),
+    term TEXT NOT NULL DEFAULT '',
     evidence TEXT NOT NULL DEFAULT '{}',
     calculated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(student_id, tag_code)
+    UNIQUE(student_id, tag_code, term)
 );
 
 CREATE TABLE IF NOT EXISTS sp_profile_snapshot (
@@ -109,9 +113,50 @@ CREATE TABLE IF NOT EXISTS sp_profile_snapshot (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sp_metric_student ON sp_metric_value(student_id, term);
-CREATE INDEX IF NOT EXISTS idx_sp_tag_student ON sp_student_tag(student_id);
 CREATE INDEX IF NOT EXISTS idx_sp_snapshot_student ON sp_profile_snapshot(student_id, term);
 )sql");
+
+    // 兼容已经存在的旧库：早期版本没有 rule 列。
+    bool has_rule = false;
+    for (const auto& row : db_.query("PRAGMA table_info(sp_tag)")) {
+        if (row.get_string("name") == "rule") {
+            has_rule = true;
+            break;
+        }
+    }
+    if (!has_rule) db_.exec("ALTER TABLE sp_tag ADD COLUMN rule TEXT NOT NULL DEFAULT '{}'");
+
+    // 兼容旧库：早期标签结果没有 term 列，也没有 (student_id, tag_code, term) 唯一约束。
+    bool has_term = false;
+    for (const auto& row : db_.query("PRAGMA table_info(sp_student_tag)")) {
+        if (row.get_string("name") == "term") {
+            has_term = true;
+            break;
+        }
+    }
+    if (!has_term) {
+        db_.exec("DROP TABLE IF EXISTS sp_student_tag_old");
+        db_.exec("ALTER TABLE sp_student_tag RENAME TO sp_student_tag_old");
+        db_.exec(R"sql(
+CREATE TABLE sp_student_tag (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id TEXT NOT NULL REFERENCES sp_student(student_id) ON DELETE CASCADE,
+    tag_code TEXT NOT NULL REFERENCES sp_tag(code),
+    term TEXT NOT NULL DEFAULT '',
+    evidence TEXT NOT NULL DEFAULT '{}',
+    calculated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(student_id, tag_code, term)
+);
+)sql");
+        db_.exec(
+            "INSERT INTO sp_student_tag (id, student_id, tag_code, term, evidence, "
+            "calculated_at) SELECT id, student_id, tag_code, '', evidence, calculated_at "
+            "FROM sp_student_tag_old");
+        db_.exec("DROP TABLE sp_student_tag_old");
+    }
+    db_.exec(
+        "CREATE INDEX IF NOT EXISTS idx_sp_tag_student_term "
+        "ON sp_student_tag(student_id, term)");
 }
 
 void SqliteProfileRepository::upsert_student(const Student& student) {
@@ -175,23 +220,26 @@ std::vector<MetricValue> SqliteProfileRepository::list_metrics(
 }
 
 void SqliteProfileRepository::upsert_tag(const Tag& tag) {
+    const std::string rule = tag.rule.empty() ? "{}" : tag.rule;
     db_.exec(
-        "INSERT INTO sp_tag (code, name, dimension, description) VALUES (?, ?, ?, ?) "
+        "INSERT INTO sp_tag (code, name, dimension, description, rule) "
+        "VALUES (?, ?, ?, ?, ?) "
         "ON CONFLICT(code) DO UPDATE SET name = excluded.name, "
-        "dimension = excluded.dimension, description = excluded.description",
-        {tag.code, tag.name, tag.dimension, tag.description});
+        "dimension = excluded.dimension, description = excluded.description, "
+        "rule = excluded.rule",
+        {tag.code, tag.name, tag.dimension, tag.description, rule});
 }
 
 std::optional<Tag> SqliteProfileRepository::find_tag(const std::string& code) const {
     const auto rows = db_.query(
-        "SELECT code, name, dimension, description FROM sp_tag WHERE code = ?", {code});
+        "SELECT code, name, dimension, description, rule FROM sp_tag WHERE code = ?", {code});
     if (rows.empty()) return std::nullopt;
     return read_tag(rows.front());
 }
 
 std::vector<Tag> SqliteProfileRepository::list_tags() const {
     const auto rows = db_.query(
-        "SELECT code, name, dimension, description FROM sp_tag ORDER BY dimension, code");
+        "SELECT code, name, dimension, description, rule FROM sp_tag ORDER BY dimension, code");
     std::vector<Tag> tags;
     tags.reserve(rows.size());
     for (const auto& row : rows) tags.push_back(read_tag(row));
@@ -199,14 +247,17 @@ std::vector<Tag> SqliteProfileRepository::list_tags() const {
 }
 
 void SqliteProfileRepository::replace_student_tags(const std::string& student_id,
+                                                   const std::string& term,
                                                    const std::vector<StudentTag>& tags) {
     db_.begin();
     try {
-        db_.exec("DELETE FROM sp_student_tag WHERE student_id = ?", {student_id});
+        db_.exec("DELETE FROM sp_student_tag WHERE student_id = ? AND term = ?",
+                 {student_id, term});
         for (const auto& tag : tags) {
             db_.exec(
-                "INSERT INTO sp_student_tag (student_id, tag_code, evidence) VALUES (?, ?, ?)",
-                {student_id, tag.tag_code, tag.evidence.empty() ? "{}" : tag.evidence});
+                "INSERT INTO sp_student_tag (student_id, tag_code, term, evidence) "
+                "VALUES (?, ?, ?, ?)",
+                {student_id, tag.tag_code, term, tag.evidence.empty() ? "{}" : tag.evidence});
         }
         db_.commit();
     } catch (...) {
@@ -216,11 +267,17 @@ void SqliteProfileRepository::replace_student_tags(const std::string& student_id
 }
 
 std::vector<StudentTag> SqliteProfileRepository::list_student_tags(
-    const std::string& student_id) const {
-    const auto rows = db_.query(
-        "SELECT id, student_id, tag_code, evidence, calculated_at "
-        "FROM sp_student_tag WHERE student_id = ? ORDER BY tag_code",
-        {student_id});
+    const std::string& student_id, const std::string& term) const {
+    std::string sql =
+        "SELECT id, student_id, tag_code, term, evidence, calculated_at "
+        "FROM sp_student_tag WHERE student_id = ?";
+    std::vector<DbValue> params{student_id};
+    if (!term.empty()) {
+        sql += " AND term = ?";
+        params.emplace_back(term);
+    }
+    sql += " ORDER BY term, tag_code";
+    const auto rows = db_.query(sql, params);
     std::vector<StudentTag> tags;
     tags.reserve(rows.size());
     for (const auto& row : rows) tags.push_back(read_student_tag(row));

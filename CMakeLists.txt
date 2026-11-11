@@ -26,10 +26,13 @@ add_library(platform_core
     src/app.cpp
     src/platform/json.cpp
     src/platform/db.cpp
+    src/platform/api.cpp
     src/modules/data_ingestion/module.cpp
+    src/modules/data_ingestion/service.cpp
     src/modules/data_ingestion/sqlite_repository.cpp
     src/modules/data_governance/module.cpp
     src/modules/student_profile/module.cpp
+    src/modules/student_profile/service.cpp
     src/modules/student_profile/sqlite_repository.cpp
     src/modules/academic_alerts/module.cpp
     src/modules/career_recommendation/module.cpp
@@ -53,6 +56,17 @@ add_test(NAME platform_tests COMMAND platform_tests)
 add_executable(platform_storage_tests tests/storage_test.cpp)
 target_link_libraries(platform_storage_tests PRIVATE platform_core)
 add_test(NAME platform_storage_tests COMMAND platform_storage_tests)
+
+add_executable(platform_module_tests tests/module_api_test.cpp)
+target_link_libraries(platform_module_tests PRIVATE platform_core)
+add_test(NAME platform_module_tests COMMAND platform_module_tests)
+
+# MinGW 下静态链接运行库，生成的 exe 不依赖 w64devkit 的 DLL。
+if(MINGW)
+    foreach(target platform_server platform_tests platform_storage_tests platform_module_tests)
+        target_link_options(${target} PRIVATE -static)
+    endforeach()
+endif()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)

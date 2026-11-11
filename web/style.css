@@ -20,4 +20,15 @@ button { border: 0; border-radius: .4rem; padding: .6rem .9rem; background: #176
 button:hover { background: #0e4d89; }
 .route { display: block; margin-top: .6rem; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 pre { background: #102033; color: #e8f1fa; border-radius: .5rem; padding: 1rem; min-height: 5rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.muted { color: #68788c; }
+.demo-profile { margin-top: .75rem; }
+.demo-profile h3 { margin: .25rem 0; }
+.demo-profile h4 { margin: 1rem 0 .4rem; }
+.demo-profile table { width: 100%; border-collapse: collapse; margin: .25rem 0 .75rem; }
+.demo-profile th, .demo-profile td { border: 1px solid #dce3ed; padding: .4rem .5rem; text-align: left; }
+.demo-profile th { background: #f3f6fa; }
+.demo-profile ul { margin: .25rem 0; padding-left: 1.2rem; }
+.demo-profile li { margin-bottom: .5rem; }
+.demo-profile .evidence { color: #52657d; font-family: ui-monospace, monospace; font-size: .85rem; overflow-wrap: anywhere; }
+.demo-profile a { color: #1765ad; }
 @media (max-width: 600px) { .request-line { grid-template-columns: 1fr; gap: 0; } }

@@ -7,7 +7,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/build/windows-vs2026/Debug/platform_server.exe",
       "args": [
-        "8080"
+        "8090"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
@@ -19,7 +19,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/build/linux-debug/platform_server",
       "args": [
-        "8080"
+        "8090"
       ],
       "cwd": "${workspaceFolder}",
       "MIMode": "gdb",

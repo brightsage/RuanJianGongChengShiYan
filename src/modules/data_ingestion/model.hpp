@@ -41,7 +41,8 @@ struct ImportTask {
 struct ImportRun {
     std::int64_t id = 0;
     std::int64_t task_id = 0;
-    std::string status;  // running / success / partial / failed
+    std::string idempotency_key;  // 非空时，同一任务重复提交返回同一次执行
+    std::string status;           // running / success / partial / failed
     std::int64_t total_count = 0;
     std::int64_t success_count = 0;
     std::int64_t failure_count = 0;

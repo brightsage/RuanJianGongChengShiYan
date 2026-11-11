@@ -28,8 +28,13 @@ public:
     virtual std::vector<ImportTask> list_import_tasks() const = 0;
     virtual std::optional<ImportTask> find_import_task(std::int64_t id) const = 0;
     virtual void update_import_task_status(std::int64_t id, const std::string& status) = 0;
+    virtual void update_import_task_schedule(std::int64_t id, const std::string& import_mode,
+                                             const std::string& schedule_expr) = 0;
 
-    virtual std::int64_t start_import_run(std::int64_t task_id) = 0;
+    virtual std::int64_t start_import_run(std::int64_t task_id,
+                                          const std::string& idempotency_key = {}) = 0;
+    virtual std::optional<ImportRun> find_import_run_by_key(
+        std::int64_t task_id, const std::string& idempotency_key) const = 0;
     virtual void finish_import_run(std::int64_t run_id, const std::string& status,
                                    std::int64_t total_count, std::int64_t success_count,
                                    std::int64_t failure_count) = 0;

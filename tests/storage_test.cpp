@@ -194,20 +194,25 @@ void test_profile_repository(platform::Database& database) {
     tag.name = "综合成绩优秀";
     tag.dimension = "学业";
     tag.description = "综合成绩位于专业前 20%";
+    tag.rule = R"({"metric":"comprehensive_score","operator":">=","value":90})";
     repository.upsert_tag(tag);
 
     const auto stored_tag = repository.find_tag(tag.code);
     require(stored_tag.has_value(), "find tag");
     require(stored_tag->dimension == "学业", "tag dimension");
+    require(stored_tag->rule == tag.rule, "tag rule");
 
     StudentTag student_tag;
     student_tag.tag_code = tag.code;
+    student_tag.term = "2026-秋";
     student_tag.evidence = R"({"metric":"comprehensive_score","value":95,"term":"2026-秋"})";
-    repository.replace_student_tags("2023001", {student_tag});
+    repository.replace_student_tags("2023001", "2026-秋", {student_tag});
 
-    const auto student_tags = repository.list_student_tags("2023001");
+    const auto student_tags = repository.list_student_tags("2023001", "2026-秋");
     require(student_tags.size() == 1, "student tag count");
     require(student_tags.front().evidence.find("95") != std::string::npos, "tag evidence");
+    require(student_tags.front().term == "2026-秋", "student tag term");
+    require(repository.list_student_tags("2023001", "2027-春").empty(), "tag term filter");
 
     ProfileSnapshot snapshot;
     snapshot.student_id = "2023001";

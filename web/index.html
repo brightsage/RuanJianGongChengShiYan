@@ -18,7 +18,15 @@
       <div id="modules" class="modules"></div>
     </section>
     <section>
+      <h2>示例画像</h2>
+      <p>演示数据里的张三（学号 2023001，学期 2026-fall）。点一下直接看结果。</p>
+      <button id="load-demo" type="button">加载张三的画像</button>
+      <p id="demo-status" class="muted"></p>
+      <div id="demo-profile" class="demo-profile"></div>
+    </section>
+    <section>
       <h2>发送请求</h2>
+      <p class="muted">点击上方路由会自动填入方法和路径；路径里的 <code>:student_id</code>、<code>:source_id</code> 等要换成真实 ID，再点“发送”。</p>
       <form id="request-form">
         <div class="request-line">
           <label>方法 <select id="method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></label>

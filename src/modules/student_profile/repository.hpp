@@ -26,9 +26,10 @@ public:
     virtual std::optional<Tag> find_tag(const std::string& code) const = 0;
     virtual std::vector<Tag> list_tags() const = 0;
 
-    virtual void replace_student_tags(const std::string& student_id,
+    virtual void replace_student_tags(const std::string& student_id, const std::string& term,
                                       const std::vector<StudentTag>& tags) = 0;
-    virtual std::vector<StudentTag> list_student_tags(const std::string& student_id) const = 0;
+    virtual std::vector<StudentTag> list_student_tags(const std::string& student_id,
+                                                      const std::string& term = {}) const = 0;
 
     virtual void save_snapshot(const ProfileSnapshot& snapshot) = 0;
     virtual std::optional<ProfileSnapshot> find_snapshot(const std::string& student_id,
