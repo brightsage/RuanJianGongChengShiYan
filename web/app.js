@@ -7,6 +7,9 @@ const headerInput = document.querySelector('#headers');
 const bodyInput = document.querySelector('#body');
 const responseStatus = document.querySelector('#response-status');
 const responseBody = document.querySelector('#response-body');
+const demoButton = document.querySelector('#load-demo');
+const demoStatus = document.querySelector('#demo-status');
+const demoProfile = document.querySelector('#demo-profile');
 
 function chooseRoute(method, path) {
   methodInput.value = method;
@@ -79,4 +82,98 @@ form.addEventListener('submit', async (event) => {
   }
 });
 
+function renderDemoProfile(profile) {
+  demoProfile.replaceChildren();
+
+  const title = document.createElement('h3');
+  title.textContent = `${profile.student.name}（${profile.student.student_id}）`;
+  const meta = document.createElement('p');
+  meta.className = 'muted';
+  meta.textContent = `${profile.student.major} · ${profile.student.class_name} · ${profile.term}`;
+  demoProfile.append(title, meta);
+
+  const metricsTitle = document.createElement('h4');
+  metricsTitle.textContent = `指标（${profile.metrics.length}）`;
+  demoProfile.append(metricsTitle);
+  if (profile.metrics.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = '暂无指标数据。';
+    demoProfile.append(empty);
+  } else {
+    const table = document.createElement('table');
+    const head = document.createElement('tr');
+    for (const label of ['指标', '数值', '单位', '来源']) {
+      const cell = document.createElement('th');
+      cell.textContent = label;
+      head.append(cell);
+    }
+    const thead = document.createElement('thead');
+    thead.append(head);
+    table.append(thead);
+    const tbody = document.createElement('tbody');
+    for (const metric of profile.metrics) {
+      const row = document.createElement('tr');
+      for (const value of [metric.metric_code, metric.value, metric.unit, metric.source]) {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        row.append(cell);
+      }
+      tbody.append(row);
+    }
+    table.append(tbody);
+    demoProfile.append(table);
+  }
+
+  const tagsTitle = document.createElement('h4');
+  tagsTitle.textContent = `标签（${profile.tags.length}）`;
+  demoProfile.append(tagsTitle);
+  if (profile.tags.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'muted';
+    empty.textContent = '暂无标签。';
+    demoProfile.append(empty);
+  } else {
+    const list = document.createElement('ul');
+    for (const tag of profile.tags) {
+      const item = document.createElement('li');
+      item.textContent = `${tag.name}（${tag.dimension}）`;
+      const evidence = document.createElement('div');
+      evidence.className = 'evidence';
+      evidence.textContent = JSON.stringify(tag.evidence);
+      item.append(evidence);
+      list.append(item);
+    }
+    demoProfile.append(list);
+  }
+
+  const report = document.createElement('a');
+  report.href = `/api/modules/student-profile/students/${encodeURIComponent(
+    profile.student.student_id,
+  )}/report?term=${encodeURIComponent(profile.term)}`;
+  report.target = '_blank';
+  report.textContent = '打开 HTML 画像报告';
+  demoProfile.append(report);
+}
+
+async function loadDemoProfile() {
+  demoStatus.textContent = '加载中…';
+  demoProfile.replaceChildren();
+  try {
+    const response = await fetch(
+      '/api/modules/student-profile/students/2023001?term=2026-fall',
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const profile = await response.json();
+    demoStatus.textContent = '数据来自真实接口，下面的内容就是接口返回的画像。';
+    renderDemoProfile(profile);
+  } catch (error) {
+    demoStatus.textContent = `加载失败：${error.message}`;
+  }
+}
+
 loadModules();
+if (demoButton && demoStatus && demoProfile) {
+  demoButton.addEventListener('click', loadDemoProfile);
+  loadDemoProfile();
+}

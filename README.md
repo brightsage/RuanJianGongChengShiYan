@@ -4,18 +4,35 @@
 
 ## 环境与运行
 
-- Linux（本地服务使用 POSIX socket）
-- 支持 C++17 的编译器、CMake 3.20 或更新版本
+- Windows（Winsock）、Linux 或 macOS（POSIX socket）
+- 支持 C++17 的编译器、CMake 3.21 或更新版本
 - Python 3 可选，用于 HTTP 冒烟测试
+- SQLite 3.54.1 以源码形式内置在 `third_party/sqlite/`，不需要额外安装数据库服务
+- OpenSSL 开发包，用于平台身份认证与审计
+
+Linux / macOS：
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j
-ctest --test-dir build --output-on-failure
+cmake --preset linux-debug
+cmake --build --preset linux-debug
+ctest --preset linux-debug
 ./build/platform_server 8080
 ```
 
+Windows / VS Code：安装 CMake Tools 与 C/C++ 扩展，打开项目后选择 `windows-vs2026` preset，`F7` 构建、`F5` 运行。命令行等价操作：
+
+```powershell
+cmake --preset windows-vs2026
+cmake --build --preset windows-vs2026
+ctest --preset windows-vs2026
+.\build\windows-vs2026\Debug\platform_server.exe 8080
+```
+
 打开 <http://127.0.0.1:8080/>。服务只监听本机回环地址；端口参数可改，省略时为 8080。测试台列出已经注册的模块和路由，并允许填写方法、路径、请求头和请求体，查看实际 HTTP 响应。它是开发工具，不是最终产品前端。
+
+职业发展推荐提供就业指导中心和学生页面，启动方式见 [职业发展推荐模块](docs/职业发展推荐模块.md)，组内接口约定见 [职业推荐联调说明](docs/职业推荐联调说明.md)
+
+首次启动正式模式前设置至少 12 字符的 `PLATFORM_ADMIN_PASSWORD`，用于创建 `admin` 账号。权限管理与账号创建见 [数据服务与权限管理](docs/data-services.md)
 
 现在可用的公共接口：
 
@@ -38,6 +55,14 @@ ctest --test-dir build --output-on-failure
 | 数据服务与权限管理 | `src/modules/data_services/` | `/api/modules/data-services/` |
 
 每个 `module.cpp` 是本模块的注册入口。新增源文件时，把它列入 `CMakeLists.txt` 的 `platform_core`。公共请求、响应和路由接口在 `include/platform/app.hpp`，注册入口声明在 `include/platform/modules.hpp`，组合顺序在 `src/app.cpp`。前端资源在 `web/`；组员的业务代码主要写在各自模块目录中。
+
+## 数据库与共享工具
+
+- `include/platform/json.hpp`：轻量 JSON 解析与输出，模块用它处理请求体和响应体。
+- `include/platform/db.hpp`：SQLite 薄封装，提供 `exec`、`query`、参数绑定和事务。
+- 默认数据库文件为 `data/platform.db`，可用环境变量 `PLATFORM_DB_PATH` 覆盖；数据库文件不提交。
+- 表名按模块加前缀（数据接入 `ing_`、学生画像 `sp_`），各模块在自己的仓储构造函数里执行 `CREATE TABLE IF NOT EXISTS`。
+- 数据采集与接入、学生画像两个模块的模型、仓储和表结构已经搭好，详见 [`docs/模块框架说明.md`](docs/模块框架说明.md)；业务路由尚未注册。
 
 ## 添加一个接口
 
