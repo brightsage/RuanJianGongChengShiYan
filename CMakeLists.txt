@@ -37,6 +37,8 @@ add_library(platform_core
     src/modules/student_profile/service.cpp
     src/modules/student_profile/sqlite_repository.cpp
     src/modules/academic_alerts/module.cpp
+    src/modules/academic_alerts/alerts_api.cpp
+    src/modules/academic_alerts/alerts_store.cpp
     src/modules/career_recommendation/module.cpp
     src/modules/career_recommendation/catalog.cpp
     src/modules/career_recommendation/recommendations.cpp
@@ -53,6 +55,9 @@ target_link_libraries(platform_core PUBLIC platform_sqlite OpenSSL::Crypto)
 
 add_executable(platform_server src/main.cpp src/http_server.cpp)
 target_link_libraries(platform_server PRIVATE platform_core)
+if(WIN32)
+    target_link_libraries(platform_server PRIVATE ws2_32)
+endif()
 target_compile_definitions(platform_server PRIVATE PLATFORM_WEB_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/web")
 if(WIN32)
     target_link_libraries(platform_server PRIVATE ws2_32)

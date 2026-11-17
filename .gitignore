@@ -8,3 +8,5 @@ __pycache__/
 *.pyc
 *.swp
 /data/
+.idea/
+cmake-build-*/

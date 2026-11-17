@@ -1,0 +1,22 @@
+@startuml
+skinparam defaultFontName "Microsoft YaHei"
+skinparam componentStyle rectangle
+
+node "用户电脑" {
+  artifact "浏览器\n(Chrome / Edge)" as browser
+}
+
+node "应用服务器 127.0.0.1:8080" {
+  component "platform_server\nC++17 单进程" as server
+  artifact "web/\n静态页面" as assets
+  database "内存数据\nstd::vector" as mem
+}
+
+database "MySQL 8\n(实验二规划，尚未接入)" as mysql
+
+browser --> server : HTTP/1.1\n(回环地址)
+server --> assets : 读取
+server --> mem : 读写
+mem ..> mysql : 持久化替换
+
+@enduml
