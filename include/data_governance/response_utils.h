@@ -1,12 +1,39 @@
 #pragma once
 #include "platform/app.hpp"
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
+#include "platform/json.hpp"
+#include <string>
 
 namespace data_governance {
 
-// 第二部分：统一响应工具函数
+class JsonWrapper : public platform::Json {
+public:
+    using platform::Json::Json;
+    JsonWrapper() : platform::Json() {}
+    JsonWrapper(platform::Json j) : platform::Json(std::move(j)) {}
+
+    std::string value(const std::string& key, const std::string& default_value) const {
+        if (contains(key)) {
+            const auto& val = at(key);
+            if (val.is_string()) return val.as_string();
+        }
+        return default_value;
+    }
+
+    static JsonWrapper parse(const std::string& text) {
+        return JsonWrapper(platform::Json::parse(text));
+    }
+
+    static JsonWrapper array() {
+        return JsonWrapper(platform::Json::array());
+    }
+
+    static JsonWrapper object() {
+        return JsonWrapper(platform::Json::object());
+    }
+};
+
+using json = JsonWrapper;
+
 inline platform::Response success_response(const json& data, const std::string& message = "success") {
     json result;
     result["code"] = 0;

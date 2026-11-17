@@ -1,9 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
+#include "data_governance/response_utils.h"
 
 namespace data_governance {
 

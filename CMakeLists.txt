@@ -1,15 +1,48 @@
-cmake_minimum_required(VERSION 3.10)
-project(data_governance_module)
+cmake_minimum_required(VERSION 3.20)
+project(student_growth_platform LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-include_directories(include)
-
-add_library(data_governance
-    src/module.cpp
-    src/types.cpp
-    src/quality_rules.cpp
-    src/student_master.cpp
-    src/metrics.cpp
-    src/quality_report.cpp
+add_library(platform_core
+    src/app.cpp
+    src/platform/json.cpp
+    src/modules/data_ingestion/module.cpp
+    src/modules/data_governance/module.cpp
+    src/modules/data_governance/types.cpp
+    src/modules/data_governance/quality_rules.cpp
+    src/modules/data_governance/student_master.cpp
+    src/modules/data_governance/metrics.cpp
+    src/modules/data_governance/quality_report.cpp
+    src/modules/student_profile/module.cpp
+    src/modules/academic_alerts/module.cpp
+    src/modules/career_recommendation/module.cpp
+    src/modules/data_services/module.cpp
 )
+target_include_directories(platform_core PUBLIC include)
+target_compile_options(platform_core PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(platform_server src/main.cpp src/http_server.cpp)
+target_link_libraries(platform_server PRIVATE platform_core)
+if(WIN32)
+    target_link_libraries(platform_server PRIVATE ws2_32)
+endif()
+target_compile_definitions(platform_server PRIVATE PLATFORM_WEB_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/web")
+target_compile_options(platform_server PRIVATE -Wall -Wextra -Wpedantic)
+
+enable_testing()
+add_executable(platform_tests tests/app_test.cpp)
+target_link_libraries(platform_tests PRIVATE platform_core)
+add_test(NAME platform_tests COMMAND platform_tests)
+
+add_executable(data_governance_tests tests/test_data_governance.cpp)
+target_link_libraries(data_governance_tests PRIVATE platform_core)
+add_test(NAME data_governance_tests COMMAND data_governance_tests)
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME http_smoke
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/http_smoke.py
+                $<TARGET_FILE:platform_server>)
+endif()

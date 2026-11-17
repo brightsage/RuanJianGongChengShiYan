@@ -1,6 +1,7 @@
 #include <cassert>
 #include <iostream>
 #include "platform/app.hpp"
+#include "platform/modules.hpp"
 #include "data_governance/types.h"
 
 using namespace platform;
@@ -8,7 +9,6 @@ using namespace data_governance;
 
 void test_list_quality_rules() {
     App app = make_app();
-    register_data_governance(app);
     
     Request req;
     req.method = "GET";
@@ -21,7 +21,6 @@ void test_list_quality_rules() {
 
 void test_get_student_master() {
     App app = make_app();
-    register_data_governance(app);
     
     Request req;
     req.method = "GET";
@@ -35,7 +34,6 @@ void test_get_student_master() {
 
 void test_recalculate_metrics() {
     App app = make_app();
-    register_data_governance(app);
     
     Request req;
     req.method = "POST";
@@ -48,7 +46,6 @@ void test_recalculate_metrics() {
 
 void test_get_quality_report() {
     App app = make_app();
-    register_data_governance(app);
     
     Request req;
     req.method = "GET";
