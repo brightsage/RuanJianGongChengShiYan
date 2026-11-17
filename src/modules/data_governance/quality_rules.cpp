@@ -4,7 +4,7 @@
 
 namespace data_governance {
 
-platform::Response handle_list_quality_rules(const platform::Request& req) {
+platform::Response handle_list_quality_rules(const platform::Request& /*req*/) {
     json data = json::array();
     for (const auto& rule : mock_quality_rules) {
         json item;

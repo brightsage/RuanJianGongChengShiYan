@@ -12,11 +12,6 @@ namespace {
 void check(int rc, sqlite3* db) {
     if (rc != SQLITE_OK) throw std::runtime_error(sqlite3_errmsg(db));
 }
-std::string hex(const unsigned char* bytes, std::size_t length) {
-    std::ostringstream out;
-    for (std::size_t i = 0; i < length; ++i) out << std::hex << std::setw(2) << std::setfill('0') << unsigned(bytes[i]);
-    return out.str();
-}
 Json scrub(const Json& value) {
     if (value.is_array()) {
         auto out = Json::array();

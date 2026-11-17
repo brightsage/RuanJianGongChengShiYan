@@ -4,7 +4,7 @@
 
 namespace data_governance {
 
-platform::Response handle_recalculate_metrics(const platform::Request& req) {
+platform::Response handle_recalculate_metrics(const platform::Request& /*req*/) {
     json data;
     data["task_id"] = "recalc_" + std::to_string(std::time(nullptr));
     data["estimated_time"] = "5分钟";

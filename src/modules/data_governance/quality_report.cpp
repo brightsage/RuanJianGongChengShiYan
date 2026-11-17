@@ -4,7 +4,7 @@
 
 namespace data_governance {
 
-platform::Response handle_get_quality_report(const platform::Request& req) {
+platform::Response handle_get_quality_report(const platform::Request& /*req*/) {
     json data;
     data["total_records"] = mock_quality_report.total_records;
     data["cleaned_records"] = mock_quality_report.cleaned_records;

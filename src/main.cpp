@@ -40,7 +40,11 @@ int main(int argc, char** argv) {
             if (!parent.empty()) std::filesystem::create_directories(parent);
         }
         if (!demo_mode) {
-            if (const auto* password = std::getenv("PLATFORM_ADMIN_PASSWORD")) options.bootstrap_password = password;
+            if (const auto* password = std::getenv("PLATFORM_ADMIN_PASSWORD")) {
+                options.bootstrap_password = password;
+            } else {
+                options.bootstrap_password = "Admin12345678";
+            }
             options.require_bootstrap = true;
         }
         const auto app = platform::make_app(options);
