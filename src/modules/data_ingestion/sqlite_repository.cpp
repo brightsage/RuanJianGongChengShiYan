@@ -44,6 +44,7 @@ ImportRun read_import_run(const DbRow& row) {
     ImportRun run;
     run.id = row.get_int64("id");
     run.task_id = row.get_int64("task_id");
+    run.idempotency_key = row.get_string("idempotency_key");
     run.status = row.get_string("status");
     run.total_count = row.get_int64("total_count");
     run.success_count = row.get_int64("success_count");
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS ing_import_task (
 CREATE TABLE IF NOT EXISTS ing_import_run (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL REFERENCES ing_import_task(id),
+    idempotency_key TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'running',
     total_count INTEGER NOT NULL DEFAULT 0,
     success_count INTEGER NOT NULL DEFAULT 0,
@@ -124,6 +126,20 @@ CREATE INDEX IF NOT EXISTS idx_ing_task_source ON ing_import_task(data_source_id
 CREATE INDEX IF NOT EXISTS idx_ing_run_task ON ing_import_run(task_id);
 CREATE INDEX IF NOT EXISTS idx_ing_raw_run ON ing_raw_record(run_id, valid);
 )sql");
+
+    // 兼容旧库：早期版本没有 idempotency_key 列。
+    bool has_key = false;
+    for (const auto& row : db_.query("PRAGMA table_info(ing_import_run)")) {
+        if (row.get_string("name") == "idempotency_key") {
+            has_key = true;
+            break;
+        }
+    }
+    if (!has_key)
+        db_.exec("ALTER TABLE ing_import_run ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''");
+    db_.exec(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ing_run_key "
+        "ON ing_import_run(task_id, idempotency_key) WHERE idempotency_key <> ''");
 }
 
 std::int64_t SqliteIngestionRepository::create_data_source(const DataSource& source) {
@@ -230,9 +246,32 @@ void SqliteIngestionRepository::update_import_task_status(std::int64_t id,
     db_.exec("UPDATE ing_import_task SET status = ? WHERE id = ?", {status, id});
 }
 
-std::int64_t SqliteIngestionRepository::start_import_run(std::int64_t task_id) {
-    db_.exec("INSERT INTO ing_import_run (task_id, status) VALUES (?, 'running')", {task_id});
+void SqliteIngestionRepository::update_import_task_schedule(std::int64_t id,
+                                                            const std::string& import_mode,
+                                                            const std::string& schedule_expr) {
+    db_.exec("UPDATE ing_import_task SET import_mode = ?, schedule_expr = ? WHERE id = ?",
+             {import_mode, schedule_expr, id});
+}
+
+std::int64_t SqliteIngestionRepository::start_import_run(std::int64_t task_id,
+                                                         const std::string& idempotency_key) {
+    db_.exec(
+        "INSERT INTO ing_import_run (task_id, idempotency_key, status) "
+        "VALUES (?, ?, 'running')",
+        {task_id, idempotency_key});
     return db_.last_insert_rowid();
+}
+
+std::optional<ImportRun> SqliteIngestionRepository::find_import_run_by_key(
+    std::int64_t task_id, const std::string& idempotency_key) const {
+    if (idempotency_key.empty()) return std::nullopt;
+    const auto rows = db_.query(
+        "SELECT id, task_id, idempotency_key, status, total_count, success_count, "
+        "failure_count, started_at, finished_at "
+        "FROM ing_import_run WHERE task_id = ? AND idempotency_key = ?",
+        {task_id, idempotency_key});
+    if (rows.empty()) return std::nullopt;
+    return read_import_run(rows.front());
 }
 
 void SqliteIngestionRepository::finish_import_run(std::int64_t run_id,
@@ -248,8 +287,8 @@ void SqliteIngestionRepository::finish_import_run(std::int64_t run_id,
 
 std::optional<ImportRun> SqliteIngestionRepository::find_import_run(std::int64_t run_id) const {
     const auto rows = db_.query(
-        "SELECT id, task_id, status, total_count, success_count, failure_count, started_at, "
-        "finished_at FROM ing_import_run WHERE id = ?",
+        "SELECT id, task_id, idempotency_key, status, total_count, success_count, "
+        "failure_count, started_at, finished_at FROM ing_import_run WHERE id = ?",
         {run_id});
     if (rows.empty()) return std::nullopt;
     return read_import_run(rows.front());

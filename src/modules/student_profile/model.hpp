@@ -33,6 +33,7 @@ struct Tag {
     std::string name;
     std::string dimension;
     std::string description;
+    std::string rule;  // JSON 文本，例如 {"metric":"score","operator":">=","value":90}
 };
 
 // 学生标签：evidence 保存标签依据（JSON），对应 UC-SP-04“查看标签依据”。
@@ -40,6 +41,7 @@ struct StudentTag {
     std::int64_t id = 0;
     std::string student_id;
     std::string tag_code;
+    std::string term;
     std::string evidence;
     std::string calculated_at;
 };

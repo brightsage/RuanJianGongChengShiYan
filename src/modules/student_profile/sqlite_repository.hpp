@@ -21,9 +21,10 @@ public:
     std::optional<Tag> find_tag(const std::string& code) const override;
     std::vector<Tag> list_tags() const override;
 
-    void replace_student_tags(const std::string& student_id,
+    void replace_student_tags(const std::string& student_id, const std::string& term,
                               const std::vector<StudentTag>& tags) override;
-    std::vector<StudentTag> list_student_tags(const std::string& student_id) const override;
+    std::vector<StudentTag> list_student_tags(const std::string& student_id,
+                                              const std::string& term = {}) const override;
 
     void save_snapshot(const ProfileSnapshot& snapshot) override;
     std::optional<ProfileSnapshot> find_snapshot(const std::string& student_id,
