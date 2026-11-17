@@ -1,14 +1,37 @@
-cmake_minimum_required(VERSION 3.20)
-project(student_growth_platform LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.21)
+project(student_growth_platform LANGUAGES C CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+find_package(OpenSSL REQUIRED)
+
+if(MSVC)
+    add_compile_options(/W4 /utf-8)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/permissive->)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# SQLite 以源码形式内置，避免额外安装数据库服务或依赖包。
+add_library(platform_sqlite STATIC third_party/sqlite/sqlite3.c)
+target_include_directories(platform_sqlite PUBLIC third_party/sqlite)
+if(MSVC)
+    target_compile_options(platform_sqlite PRIVATE /w)
+else()
+    target_compile_options(platform_sqlite PRIVATE -w)
+endif()
 
 add_library(platform_core
     src/app.cpp
     src/platform/json.cpp
+    src/platform/db.cpp
+    src/platform/api.cpp
     src/modules/data_ingestion/module.cpp
+    src/modules/data_ingestion/service.cpp
+    src/modules/data_ingestion/sqlite_repository.cpp
     src/modules/data_governance/module.cpp
     src/modules/data_governance/types.cpp
     src/modules/data_governance/quality_rules.cpp
@@ -16,20 +39,31 @@ add_library(platform_core
     src/modules/data_governance/metrics.cpp
     src/modules/data_governance/quality_report.cpp
     src/modules/student_profile/module.cpp
+    src/modules/student_profile/service.cpp
+    src/modules/student_profile/sqlite_repository.cpp
     src/modules/academic_alerts/module.cpp
+    src/modules/academic_alerts/alerts_api.cpp
+    src/modules/academic_alerts/alerts_store.cpp
     src/modules/career_recommendation/module.cpp
+    src/modules/career_recommendation/catalog.cpp
+    src/modules/career_recommendation/recommendations.cpp
+    src/modules/career_recommendation/profile.cpp
+    src/modules/career_recommendation/outcomes.cpp
     src/modules/data_services/module.cpp
+    src/modules/data_services/store.cpp
+    src/modules/data_services/security.cpp
+    src/modules/data_services/services.cpp
+    src/modules/data_services/gateway.cpp
 )
-target_include_directories(platform_core PUBLIC include)
-target_compile_options(platform_core PRIVATE -Wall -Wextra -Wpedantic)
+target_include_directories(platform_core PUBLIC include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(platform_core PUBLIC platform_sqlite OpenSSL::Crypto)
 
 add_executable(platform_server src/main.cpp src/http_server.cpp)
 target_link_libraries(platform_server PRIVATE platform_core)
+target_compile_definitions(platform_server PRIVATE PLATFORM_WEB_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/web")
 if(WIN32)
     target_link_libraries(platform_server PRIVATE ws2_32)
 endif()
-target_compile_definitions(platform_server PRIVATE PLATFORM_WEB_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/web")
-target_compile_options(platform_server PRIVATE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 add_executable(platform_tests tests/app_test.cpp)
@@ -40,9 +74,35 @@ add_executable(data_governance_tests tests/test_data_governance.cpp)
 target_link_libraries(data_governance_tests PRIVATE platform_core)
 add_test(NAME data_governance_tests COMMAND data_governance_tests)
 
+add_executable(platform_storage_tests tests/storage_test.cpp)
+target_link_libraries(platform_storage_tests PRIVATE platform_core)
+add_test(NAME platform_storage_tests COMMAND platform_storage_tests)
+foreach(suite IN ITEMS security service gateway)
+    add_executable(${suite}_tests tests/${suite}_test.cpp)
+    target_link_libraries(${suite}_tests PRIVATE platform_core)
+    add_test(NAME ${suite}_tests COMMAND ${suite}_tests)
+endforeach()
+add_executable(career_profile_tests tests/career_profile_test.cpp)
+target_link_libraries(career_profile_tests PRIVATE platform_core)
+add_test(NAME career_profile_tests COMMAND career_profile_tests)
+
+add_executable(platform_module_tests tests/module_api_test.cpp)
+target_link_libraries(platform_module_tests PRIVATE platform_core)
+add_test(NAME platform_module_tests COMMAND platform_module_tests)
+
+# MinGW 下静态链接运行库，生成的 exe 不依赖 w64devkit 的 DLL。
+if(MINGW)
+    foreach(target platform_server platform_tests data_governance_tests platform_storage_tests platform_module_tests)
+        target_link_options(${target} PRIVATE -static)
+    endforeach()
+endif()
+
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     add_test(NAME http_smoke
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/http_smoke.py
+                $<TARGET_FILE:platform_server>)
+    add_test(NAME data_services_http
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/data_services_http.py
                 $<TARGET_FILE:platform_server>)
 endif()

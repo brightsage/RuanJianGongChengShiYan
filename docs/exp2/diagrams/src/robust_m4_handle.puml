@@ -1,0 +1,21 @@
+@startuml
+skinparam defaultFontName "Microsoft YaHei"
+
+actor "辅导员" as actor
+
+boundary "预警处置界面\n(web/index.html)" as ui
+control "AlertController\nhandle_alert()\nclaim_alert()" as ctrl
+entity "Alert\n预警记录" as alert
+entity "Intervention\n干预记录" as rec
+entity "Rule\n预警规则" as rule
+entity "Student\n学生" as stu
+
+actor --> ui : 填写措施 / 点击提交
+ui --> ctrl : POST /alerts/:alert_id/handle
+ctrl --> alert : 查询状态 / 校验
+ctrl --> rec : 追加干预记录
+ctrl --> rule : (生成时)读取阈值
+alert --> stu : 关联学生
+alert --> rec : 一对多
+
+@enduml

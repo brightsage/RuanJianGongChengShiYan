@@ -1,16 +1,15 @@
-# 忽略IDE文件
+/build/
+/build-*/
+/.cache/
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
+__pycache__/
+*.pyc
+*.swp
+/data/
 .idea/
 .vscode/
-*.suo
-*.sln
-
-# 忽略编译目录
 cmake-build-*/
-build/
-*.o
-*.a
-*.exe
-
-# 忽略临时文件
 *.log
 *.tmp

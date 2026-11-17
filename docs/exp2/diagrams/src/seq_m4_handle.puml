@@ -1,0 +1,37 @@
+@startuml
+skinparam defaultFontName "Microsoft YaHei"
+autonumber
+
+actor 辅导员 as U
+participant "浏览器" as B
+participant "http_server" as H
+participant "App\n(路由表)" as A
+participant "handle_alert\n(接口层)" as C
+participant "Store\n(数据层)" as S
+
+U -> B : 选择预警，填写干预措施
+B -> H : POST /alerts/2/handle\n{"action":"close","measures":"..."}
+H -> A : Request{path, body}
+A -> C : 路由匹配成功，调用 handler
+
+C -> S : find_alert(2)
+S --> C : Alert*
+
+alt 预警不存在
+  C --> A : 404 {"error":"预警不存在"}
+else 已关闭
+  C --> A : 409 {"error":"历史不可修改"}
+else 未填写 measures 且 action=close
+  C --> A : 400 {"error":"未填写干预措施"}
+else 状态合法
+  C -> S : 更新 status=closed
+  C -> S : 追加 Intervention 记录
+  S --> C : ok
+  C --> A : 200 + alert_json
+end
+
+A --> H : Response
+H --> B : HTTP 响应
+B --> U : 结果提示
+
+@enduml
