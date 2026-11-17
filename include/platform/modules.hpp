@@ -8,5 +8,5 @@ void register_data_governance(App& app);
 void register_student_profile(App& app);
 void register_academic_alerts(App& app);
 void register_career_recommendation(App& app);
-void register_data_services(App& app);
+void register_data_services(App& app, const AppOptions& options = {});
 }  // namespace platform

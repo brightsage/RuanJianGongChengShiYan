@@ -325,8 +325,12 @@ bool Json::as_bool() const {
 }
 
 std::int64_t Json::as_int64() const {
-    if (!is_number()) throw JsonError("json value is not a number");
-    return static_cast<std::int64_t>(std::get<double>(value_));
+    const double number = as_double();
+    if (!std::isfinite(number) || std::trunc(number) != number ||
+        number < -0x1p63 || number >= 0x1p63) {
+        throw JsonError("json number is not a signed 64-bit integer");
+    }
+    return static_cast<std::int64_t>(number);
 }
 
 double Json::as_double() const {

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>数据服务与权限管理</title>
+  <link rel="stylesheet" href="/data-services.css">
+</head>
+<body>
+  <header><div><a href="/">学生成长中台</a><h1>数据服务与权限管理</h1></div><div id="identity"></div><button id="logout" hidden>退出登录</button></header>
+  <p id="notice" role="status" aria-live="polite"></p>
+  <main>
+    <section id="login-panel" class="login">
+      <h2>登录</h2>
+      <form id="login-form">
+        <label>用户名<input name="username" required autocomplete="username"></label>
+        <label>密码<input name="password" type="password" required autocomplete="current-password"></label>
+        <button>登录</button>
+      </form>
+      <p>首次启动创建的管理员用户名为 admin。请用管理员账号为各角色创建账号。</p>
+    </section>
+    <div id="workspace" hidden>
+      <nav id="tabs" aria-label="管理功能"></nav>
+      <section data-panel="services" hidden>
+        <h2>数据服务</h2><p id="providers"></p><div id="service-list"></div>
+        <form id="service-form" data-permission="services.publish" class="card" hidden>
+          <h3>发布新版本</h3>
+          <div class="grid"><label>服务名称<input name="name" required maxlength="100"></label><label>版本<input name="version" value="v1" required></label>
+            <label>提供者 ID<input name="provider_id" list="provider-options" required><datalist id="provider-options"></datalist></label><label>发布字段（英文逗号分隔）<input name="fields" placeholder="student_no,score" required></label>
+            <label>每分钟全局上限<input name="rate_per_minute" type="number" min="1" max="10000" value="60" required></label></div>
+          <fieldset><legend>服务数据范围</legend><div class="scope grid"></div></fieldset>
+          <button>发布服务</button>
+        </form>
+      </section>
+      <section data-panel="applications" hidden>
+        <h2>授权申请</h2><div id="application-list"></div>
+        <form id="application-form" data-permission="grants.apply" class="card" hidden>
+          <h3>申请服务授权</h3>
+          <label>服务<select name="service_id" required></select></label><label>用途<textarea name="purpose" rows="2" required maxlength="1000"></textarea></label>
+          <fieldset><legend>申请数据范围</legend><div class="scope grid"></div></fieldset>
+          <div class="grid"><label>有效期（秒）<input name="validity_seconds" type="number" min="60" max="31536000" value="3600" required></label>
+            <label>总调用额度<input name="quota" type="number" min="1" max="1000000" value="100" required></label><label>每分钟上限<input name="rate_per_minute" type="number" min="1" value="10" required></label></div>
+          <button>提交申请</button>
+        </form>
+        <div id="issued-token" class="card" hidden><h3>服务令牌</h3><p>请及时保存。再次签发会使旧令牌失效。</p><code id="token-value"></code></div>
+        <form id="invoke-form" data-permission="grants.apply" class="card" hidden>
+          <h3>调用已授权服务</h3><label>服务 ID<input name="service_id" required></label><label>服务令牌<input name="token" type="password" required autocomplete="off"></label>
+          <label>查询参数（JSON 对象）<textarea name="parameters" rows="3">{}</textarea></label><button>调用</button><pre id="invoke-result">尚未调用。</pre>
+        </form>
+      </section>
+      <section data-panel="users" hidden>
+        <h2>用户管理</h2><div id="user-list"></div>
+        <form id="user-form" class="card">
+          <h3 id="user-form-title">创建用户</h3><input type="hidden" name="user_id">
+          <div class="grid"><label>用户名<input name="username" required autocomplete="off"></label><label>密码（至少 12 字符）<input name="password" type="password" minlength="12" required autocomplete="new-password"></label>
+            <label>角色<select name="role" required></select></label><label>组织 ID<input name="org_id"></label><label>班级 ID<input name="class_id"></label><label>学号<input name="student_no" placeholder="编辑时留空保持原值"></label></div>
+          <label class="inline"><input name="active" type="checkbox" checked disabled>启用账号（创建时默认启用）</label><button>保存用户</button><button type="button" id="reset-user" class="secondary">新建</button>
+        </form>
+      </section>
+      <section data-panel="roles" hidden>
+        <h2>角色权限</h2><div id="role-list"></div>
+        <form id="role-form" class="card"><h3>创建或更新角色</h3>
+          <div class="grid"><label>角色编码<input name="code" required pattern="[a-z0-9_]+"></label><label>角色名称<input name="name" required></label>
+            <label>数据范围<select name="scope_type"><option value="all">全校</option><option value="college">学院</option><option value="class">班级</option><option value="self">本人</option></select></label></div>
+          <fieldset><legend>功能权限</legend><div id="permission-options" class="grid"></div></fieldset><button>保存角色</button>
+        </form>
+      </section>
+      <section data-panel="masking" hidden>
+        <h2>脱敏规则</h2><p>规则按字段名递归应用。严格级别授权会完全遮盖所有配置的敏感字段。</p><div id="mask-list"></div>
+        <form id="mask-form" class="card"><div class="grid"><label>字段名<input name="field" required pattern="[a-z0-9_]+"></label>
+          <label>算法<select name="algorithm"><option value="redact">完全遮盖</option><option value="partial">仅保留首尾字符</option><option value="hash">HMAC 摘要</option></select></label></div><button>保存规则</button></form>
+      </section>
+      <section data-panel="logs" hidden>
+        <h2>审计日志</h2><form id="log-form" class="grid">
+          <label>类型<select name="kind"><option value="audit-logs">操作日志</option><option value="call-logs">调用日志</option></select></label>
+          <label>操作人 ID<input name="actor_id"></label><label>动作（操作日志）<input name="action" placeholder="user.create"></label><label>服务 ID（调用日志）<input name="service_id"></label>
+          <label>状态码（调用日志）<input name="status" type="number" min="100" max="599"></label><label>开始时间<input name="from" type="datetime-local"></label><label>结束时间<input name="to" type="datetime-local"></label><button>查询</button></form>
+        <div id="log-list"></div><div class="pager"><button id="previous" class="secondary">上一页</button><span id="page"></span><button id="next" class="secondary">下一页</button></div>
+      </section>
+      <section data-panel="account" hidden><h2>当前身份</h2><pre id="principal"></pre></section>
+    </div>
+  </main>
+  <dialog id="decision-dialog"><form id="decision-form">
+    <h2>审批授权申请</h2><input name="id" type="hidden"><label>决定<select name="decision"><option value="approve">批准</option><option value="reject">拒绝</option></select></label>
+    <div class="grid"><label>有效期（秒）<input name="validity_seconds" type="number" min="60" required></label><label>总调用额度<input name="quota" type="number" min="1" required></label><label>每分钟上限<input name="rate_per_minute" type="number" min="1" required></label>
+      <label>脱敏级别<select name="mask_level"><option value="standard">标准</option><option value="strict">严格</option></select></label></div>
+    <label>审批意见（拒绝时必填）<textarea name="reason" rows="2" maxlength="1000"></textarea></label><button>确认审批</button><button type="button" id="cancel-decision" class="secondary">取消</button>
+  </form></dialog>
+  <script src="/data-services.js" defer></script>
+</body>
+</html>
