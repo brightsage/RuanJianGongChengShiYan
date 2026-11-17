@@ -16,8 +16,8 @@ std::string lower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::tolower(c); }); return value;
 }
 std::string partial(const Json& value) {
-    if (!value.is(json_type_string)) return "***";
-    const auto text = value.string(); std::vector<std::size_t> starts;
+    if (!value.is_string()) return "***";
+    const auto text = value.as_string(); std::vector<std::size_t> starts;
     for (std::size_t i = 0; i < text.size(); ++i) if ((static_cast<unsigned char>(text[i]) & 0xc0) != 0x80) starts.push_back(i);
     if (starts.size() < 4) return "***";
     return text.substr(0, starts[1]) + "***" + text.substr(starts.back());
@@ -32,27 +32,26 @@ std::string keyed_hash(const std::string& key, const std::string& input) {
     return result;
 }
 Json mask(const Json& input, const std::map<std::string, std::string>& rules, const std::string& level, const std::string& key) {
-    if (input.is(json_type_array)) {
-        auto out = Json::array(); for (std::size_t i = 0; i < input.size(); ++i) out.push(mask(input.at(i), rules, level, key)); return out;
+    if (input.is_array()) {
+        auto out = Json::array(); for (std::size_t i = 0; i < input.as_array().size(); ++i) out.push_back(mask(input.at(i), rules, level, key)); return out;
     }
-    if (!input.is(json_type_object)) return input;
+    if (!input.is_object()) return input;
     auto out = Json::object();
-    json_object_object_foreach(input.raw(), name, value) {
+    for (const auto& [name, item] : input.as_object()) {
         const auto field = lower(name); const auto it = rules.find(field);
         const bool secret = field.find("password") != std::string::npos || field.find("token") != std::string::npos ||
             field.find("secret") != std::string::npos || field == "authorization" || field == "salt";
-        const Json item(json_object_get(value));
-        if (secret || (it != rules.end() && (level == "strict" || it->second == "redact"))) out.set(name, Json::text("***"));
-        else if (it != rules.end() && it->second == "partial") out.set(name, Json::text(partial(item)));
-        else if (it != rules.end() && it->second == "hash") out.set(name, Json::text(keyed_hash(key, item.dump())));
-        else out.set(name, mask(item, rules, level, key));
+        if (secret || (it != rules.end() && (level == "strict" || it->second == "redact"))) out[name] = Json("***");
+        else if (it != rules.end() && it->second == "partial") out[name] = Json(partial(item));
+        else if (it != rules.end() && it->second == "hash") out[name] = Json(keyed_hash(key, item.dump()));
+        else out[name] = mask(item, rules, level, key);
     }
     return out;
 }
 bool record_in_scope(const Json& row, const security::Scope& scope) {
     if (scope.type == "all") return true;
     const auto matches = [&](const std::string& field, const std::string& expected) {
-        return !expected.empty() && row.get(field).is(json_type_string) && row.get(field).string() == expected;
+        return !expected.empty() && row.contains(field) && row.at(field).is_string() && row.at(field).as_string() == expected;
     };
     if (!matches("org_id", scope.org_id)) return false;
     if (scope.type == "college") return true;
@@ -79,7 +78,7 @@ Json Gateway::providers() const {
     auto store = security_->store(); std::lock_guard<std::recursive_mutex> lock(store->mutex);
     auto out = Json::array();
     for (const auto& [id, entry] : providers_) {
-        auto item = Json::object(); item.set("id", Json::text(id)); item.set("fields", strings(entry.fields)); out.push(item);
+        auto item = Json::object(); item["id"] = Json(id); item["fields"] = strings(entry.fields); out.push_back(item);
     } return out;
 }
 Response Gateway::invoke(const Request& request) {
@@ -110,12 +109,12 @@ Response Gateway::invoke(const Request& request) {
         ensure(grant.integer(9) != minute || grant.integer(10) < grant.integer(6), 429, "rate_limited", "grant minute limit reached");
         ensure(service.integer(8) != minute || service.integer(9) < service.integer(6), 429, "rate_limited", "service minute limit reached");
         const auto input = body(request);
-        json_object_object_foreach(input.raw(), key, value) {
-            (void)value;
+        for (const auto& entry : input.as_object()) {
+            const auto& key = entry.first;
             if (std::string(key) != "parameters") throw std::invalid_argument("invoke accepts only parameters; scope is determined by the grant");
         }
-        const auto parameters = input.has("parameters") ? input.get("parameters") : Json::object();
-        if (!parameters.is(json_type_object)) throw std::invalid_argument("parameters must be an object");
+        const auto parameters = input.contains("parameters") ? input.at("parameters") : Json::object();
+        if (!parameters.is_object()) throw std::invalid_argument("parameters must be an object");
         const auto provider = providers_.find(service.text(2));
         ensure(provider != providers_.end(), 503, "provider_unavailable", "data provider has not been registered");
         const auto fields = string_list(Json::parse(service.text(4)));
@@ -125,26 +124,26 @@ Response Gateway::invoke(const Request& request) {
         Json records;
         try { records = provider->second.provider(Query{owner, scope, fields, parameters}); }
         catch (...) { throw ApiError(503, "provider_unavailable", "data provider failed"); }
-        ensure(records.is(json_type_array), 502, "invalid_provider_response", "data provider must return an array");
+        ensure(records.is_array(), 502, "invalid_provider_response", "data provider must return an array");
         std::map<std::string, std::string> rules;
         Statement rule(store->db, "SELECT field,algorithm FROM masking_rules"); while (rule.step()) rules.emplace(rule.text(0), rule.text(1));
         Statement mask_key(store->db, "SELECT value FROM settings WHERE key='mask_key'"); mask_key.step();
         auto output = Json::array();
-        for (std::size_t i = 0; i < records.size(); ++i) {
+        for (std::size_t i = 0; i < records.as_array().size(); ++i) {
             const auto row = records.at(i);
-            ensure(row.is(json_type_object), 502, "invalid_provider_response", "each provider record must be an object");
+            ensure(row.is_object(), 502, "invalid_provider_response", "each provider record must be an object");
             if (!record_in_scope(row, scope)) continue;
             auto projected = Json::object();
-            for (const auto& field : fields) if (row.has(field)) projected.set(field, row.get(field));
-            output.push(mask(projected, rules, grant.text(7), mask_key.text(0)));
+            for (const auto& field : fields) if (row.contains(field)) projected[field] = row.at(field);
+            output.push_back(mask(projected, rules, grant.text(7), mask_key.text(0)));
         }
         Statement(store->db, "UPDATE grants SET used=used+1,bucket=?,bucket_count=? WHERE id=?")
             .bind(1, minute).bind(2, grant.integer(9) == minute ? grant.integer(10) + 1 : 1).bind(3, grant_id).step();
         Statement(store->db, "UPDATE services SET bucket=?,bucket_count=? WHERE id=?")
             .bind(1, minute).bind(2, service.integer(8) == minute ? service.integer(9) + 1 : 1).bind(3, service_id).step();
         call_log(*store, service_id, grant_id, actor, 200, "ok", request_id);
-        auto result = Json::object(); result.set("service_id", Json::text(service_id)); result.set("version", Json::text(service.text(3)));
-        result.set("records", output); result.set("request_id", Json::text(request_id));
+        auto result = Json::object(); result["service_id"] = Json(service_id); result["version"] = Json(service.text(3));
+        result["records"] = output; result["request_id"] = Json(request_id);
         auto response = json(200, result); response.headers["Cache-Control"] = "no-store";
         tx.commit(); return response;
     };
@@ -171,7 +170,7 @@ void install_gateway_routes(App& app, const std::shared_ptr<Gateway>& gateway) {
         sec->authorize(request, "masking.manage"); auto result = Json::array();
         Statement rows(store->db, "SELECT field,algorithm FROM masking_rules ORDER BY field");
         while (rows.step()) {
-            auto item = Json::object(); item.set("field", Json::text(rows.text(0))); item.set("algorithm", Json::text(rows.text(1))); result.push(item);
+            auto item = Json::object(); item["field"] = Json(rows.text(0)); item["algorithm"] = Json(rows.text(1)); result.push_back(item);
         } return json(200, result);
     }));
     app.add_module_route("data-services", "PUT", "/masking-rules/:field", guarded(store, [sec, store](const Request& request) {
@@ -182,7 +181,7 @@ void install_gateway_routes(App& app, const std::shared_ptr<Gateway>& gateway) {
         if (algorithm != "redact" && algorithm != "partial" && algorithm != "hash") throw std::invalid_argument("algorithm must be redact, partial or hash");
         AuditEvent event{"masking.update", "masking_rule", field}; event.after = input;
         Statement old(store->db, "SELECT algorithm FROM masking_rules WHERE field=?"); old.bind(1, field);
-        if (old.step()) { event.before = Json::object(); event.before.set("algorithm", Json::text(old.text(0))); }
+        if (old.step()) { event.before = Json::object(); event.before["algorithm"] = Json(old.text(0)); }
         sec->audited_write(p, event, [&](sqlite3* db) {
             Statement(db, "INSERT INTO masking_rules VALUES(?,?) ON CONFLICT(field) DO UPDATE SET algorithm=excluded.algorithm")
                 .bind(1, field).bind(2, algorithm).step();
@@ -200,9 +199,9 @@ void install_gateway_routes(App& app, const std::shared_ptr<Gateway>& gateway) {
         rows.bind(index++, query_number(query, "limit", 100, 1, 200)); rows.bind(index, query_number(query, "offset", 0, 0, 100000000));
         auto out = Json::array();
         while (rows.step()) {
-            auto item = Json::object(); item.set("id", Json::number(rows.integer(0))); item.set("created_at", Json::number(rows.integer(1)));
-            item.set("service_id", Json::text(rows.text(2))); item.set("grant_id", Json::text(rows.text(3))); item.set("actor_id", Json::text(rows.text(4)));
-            item.set("status", Json::number(rows.integer(5))); item.set("reason", Json::text(rows.text(6))); item.set("request_id", Json::text(rows.text(7))); out.push(item);
+            auto item = Json::object(); item["id"] = Json(rows.integer(0)); item["created_at"] = Json(rows.integer(1));
+            item["service_id"] = Json(rows.text(2)); item["grant_id"] = Json(rows.text(3)); item["actor_id"] = Json(rows.text(4));
+            item["status"] = Json(rows.integer(5)); item["reason"] = Json(rows.text(6)); item["request_id"] = Json(rows.text(7)); out.push_back(item);
         } return json(200, out);
     }));
 }

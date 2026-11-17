@@ -22,14 +22,14 @@ struct Client {
         return platform::Json::parse(call(method, path, body, expected).body);
     }
     void login(const std::string& username, const std::string& password = "test-user-password") {
-        auto input = platform::Json::object(); input.set("username", platform::Json::text(username));
-        input.set("password", platform::Json::text(password));
-        token = get("POST", "/login", input.dump()).get("access_token").string();
+        auto input = platform::Json::object(); input["username"] = platform::Json(username);
+        input["password"] = platform::Json(password);
+        token = get("POST", "/login", input.dump()).at("access_token").as_string();
     }
     std::string create(const std::string& username, const std::string& role, const std::string& org = "college-a") {
-        auto input = platform::Json::object(); input.set("username", platform::Json::text(username));
-        input.set("password", platform::Json::text("test-user-password")); input.set("role", platform::Json::text(role));
-        input.set("org_id", platform::Json::text(org));
-        return get("POST", "/users", input.dump(), 201).get("user_id").string();
+        auto input = platform::Json::object(); input["username"] = platform::Json(username);
+        input["password"] = platform::Json("test-user-password"); input["role"] = platform::Json(role);
+        input["org_id"] = platform::Json(org);
+        return get("POST", "/users", input.dump(), 201).at("user_id").as_string();
     }
 };

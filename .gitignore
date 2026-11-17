@@ -1,4 +1,8 @@
 /build/
+/build-*/
 /.cache/
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
 *.swp
 /data/

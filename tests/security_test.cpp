@@ -11,10 +11,10 @@ Response call(const App& app, const std::string& method, const std::string& suff
     return app.handle(request);
 }
 std::string login(const App& app, const std::string& username, const std::string& password) {
-    auto input = Json::object(); input.set("username", Json::text(username)); input.set("password", Json::text(password));
+    auto input = Json::object(); input["username"] = Json(username); input["password"] = Json(password);
     const auto response = call(app, "POST", "/login", input.dump());
     check(response.status == 200, "login failed: " + response.body);
-    return Json::parse(response.body).get("access_token").string();
+    return Json::parse(response.body).at("access_token").as_string();
 }
 int main() {
     std::int64_t now = 1700000000;
@@ -28,13 +28,13 @@ int main() {
         const auto response = call(app, "POST", "/users", "{\"username\":\"" + name +
             "\",\"password\":\"test-user-password\",\"role\":\"" + role + "\"" + attrs + "}", admin);
         check(response.status == 201, "create user: " + response.body);
-        return Json::parse(response.body).get("user_id").string();
+        return Json::parse(response.body).at("user_id").as_string();
     };
     const auto student_id = create("student", "student", R"(,"org_id":"college-a","class_id":"class-a","student_no":"20260001")");
     const auto career_id = create("career", "career_center"); (void)career_id;
     const auto student = login(app, "student", "test-user-password");
     auto me = Json::parse(call(app, "GET", "/me", "", student).body);
-    check(me.get("student_no").string() == "20260001", "student_no must come from authenticated account");
+    check(me.at("student_no").as_string() == "20260001", "student_no must come from authenticated account");
     check(call(app, "GET", "/users", "", student).status == 403, "role boundary");
     Request request{"GET", "/", {{"authorization", "Bearer " + student}}, {}, {}, {}};
     const auto principal = app.security()->authorize(request, "career.recommendations.read", {"self", "college-a", "class-a", "20260001"});
@@ -64,7 +64,7 @@ int main() {
     }); } catch (const std::runtime_error&) { business_failure = true; }
     check(business_failure, "business failure must propagate");
     const auto logs = call(app, "GET", "/audit-logs", "", admin);
-    check(logs.status == 200 && Json::parse(logs.body).is(json_type_array), "audit log must be readable");
+    check(logs.status == 200 && Json::parse(logs.body).is_array(), "audit log must be readable");
     check(logs.body.find("transaction_failed") != std::string::npos, "business failure must have an audit event");
     check(logs.body.find("test-user-password") == std::string::npos, "password must not appear in audit");
     check(logs.body.find("20260001") == std::string::npos, "student number must be redacted in audit");

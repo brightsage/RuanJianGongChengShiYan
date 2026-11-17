@@ -9,10 +9,10 @@ namespace platform::security {
 using namespace data_services;
 
 Json scope_json(const Scope& scope) {
-    auto out = Json::object(); out.set("type", Json::text(scope.type));
-    if (!scope.org_id.empty()) out.set("org_id", Json::text(scope.org_id));
-    if (!scope.class_id.empty()) out.set("class_id", Json::text(scope.class_id));
-    if (!scope.student_no.empty()) out.set("student_no", Json::text(scope.student_no));
+    auto out = Json::object(); out["type"] = Json(scope.type);
+    if (!scope.org_id.empty()) out["org_id"] = Json(scope.org_id);
+    if (!scope.class_id.empty()) out["class_id"] = Json(scope.class_id);
+    if (!scope.student_no.empty()) out["student_no"] = Json(scope.student_no);
     return out;
 }
 bool contains(const Scope& outer, const Scope& inner) {
@@ -25,13 +25,13 @@ bool contains(const Scope& outer, const Scope& inner) {
 }
 Json principal_json(const Principal& p) {
     auto out = Json::object();
-    out.set("user_id", Json::text(p.user_id)); out.set("username", Json::text(p.username));
-    out.set("role", Json::text(p.role)); out.set("org_id", Json::text(p.org_id));
-    out.set("class_id", Json::text(p.class_id)); out.set("student_no", p.student_no.empty() ? Json{} : Json::text(p.student_no));
-    out.set("scope", scope_json(p.scope)); out.set("permissions", strings(p.permissions)); return out;
+    out["user_id"] = Json(p.user_id); out["username"] = Json(p.username);
+    out["role"] = Json(p.role); out["org_id"] = Json(p.org_id);
+    out["class_id"] = Json(p.class_id); out["student_no"] = p.student_no.empty() ? Json{} : Json(p.student_no);
+    out["scope"] = scope_json(p.scope); out["permissions"] = strings(p.permissions); return out;
 }
 Response api_error(int status, const std::string& code, const std::string& message) {
-    auto out = Json::object(); out.set("error", Json::text(code)); out.set("message", Json::text(message));
+    auto out = Json::object(); out["error"] = Json(code); out["message"] = Json(message);
     auto response = json(status, out);
     if (status == 401) response.headers["WWW-Authenticate"] = "Bearer";
     response.headers["Cache-Control"] = "no-store";
@@ -83,6 +83,11 @@ Principal Security::authorize(const Request& request, const std::string& permiss
     }
     return p;
 }
+void Security::with_connection(const std::function<void(sqlite3*)>& operation) const {
+    std::lock_guard<std::recursive_mutex> lock(store_->mutex);
+    operation(store_->db);
+}
+
 void Security::audited_write(const Principal& actor, AuditEvent& event, const std::function<void(sqlite3*)>& write) const {
     if (actor.user_id.empty() || event.action.empty() || event.resource_type.empty() || event.resource_id.empty() || event.outcome != "success")
         throw std::invalid_argument("incomplete successful write audit event");
@@ -112,13 +117,13 @@ security::Principal load_principal(Store& store, const std::string& user_id) {
 }
 namespace {
 std::string optional_text(const Json& value, const std::string& field) {
-    return value.has(field) ? text(value, field, 100) : "";
+    return value.contains(field) ? text(value, field, 100) : "";
 }
 Json user_json(Statement& row) {
     auto out = Json::object();
     const char* keys[] = {"user_id", "username", "role", "org_id", "class_id", "student_no"};
-    for (int i = 0; i < 6; ++i) out.set(keys[i], Json::text(row.text(i)));
-    out.set("active", Json::boolean(row.integer(6) != 0)); return out;
+    for (int i = 0; i < 6; ++i) out[keys[i]] = Json(row.text(i));
+    out["active"] = Json(row.integer(6) != 0); return out;
 }
 void validate_scope_identity(const std::string& type, const std::string& org,
                              const std::string& cls, const std::string& student) {
@@ -157,8 +162,8 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         Statement(store->db, "DELETE FROM sessions WHERE expires_at<=?").bind(1, store->now()).step();
         Statement(store->db, "INSERT INTO sessions VALUES(?,?,?)").bind(1, digest(token)).bind(2, user.text(0)).bind(3, expires).step();
         store->audit(user.text(0), event); tx.commit();
-        auto result = Json::object(); result.set("access_token", Json::text(token));
-        result.set("token_type", Json::text("Bearer")); result.set("expires_at", Json::number(expires));
+        auto result = Json::object(); result["access_token"] = Json(token);
+        result["token_type"] = Json("Bearer"); result["expires_at"] = Json(expires);
         auto response = json(200, result); response.headers["Cache-Control"] = "no-store"; return response;
     });
     add("GET", "/me", [sec](const Request& request) {
@@ -178,8 +183,8 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         Statement rows(store->db, "SELECT id,username,role,org_id,class_id,student_no,active FROM users ORDER BY username");
         auto result = Json::array(); while (rows.step()) {
             auto item = user_json(rows);
-            if (!rows.text(5).empty()) item.set("student_no", Json::text("***"));
-            result.push(item);
+            if (!rows.text(5).empty()) item["student_no"] = Json("***");
+            result.push_back(item);
         } return json(200, result);
     });
     add("POST", "/users", [sec, store](const Request& request) {
@@ -201,7 +206,7 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
             Statement(db, "INSERT INTO users VALUES(?,?,?,?,?,?,?,?,1)").bind(1, id).bind(2, username).bind(3, hashed)
                 .bind(4, salt).bind(5, role).bind(6, org).bind(7, cls).bind(8, student).step();
         });
-        auto result = Json::object(); result.set("user_id", Json::text(id)); return json(201, result);
+        auto result = Json::object(); result["user_id"] = Json(id); return json(201, result);
     });
     add("PATCH", "/users/:id", [sec, store](const Request& request) {
         const auto p = sec->authorize(request, "users.manage"); const auto input = body(request);
@@ -209,19 +214,19 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         Statement row(store->db, "SELECT id,username,role,org_id,class_id,student_no,active FROM users WHERE id=?"); row.bind(1, id);
         if (!row.step()) throw ApiError(404, "not_found", "user not found");
         const auto before = user_json(row);
-        const auto role = input.has("role") ? text(input, "role", 100) : row.text(2);
-        const bool active = input.has("active") ? input.get("active").boolean() : row.integer(6) != 0;
+        const auto role = input.contains("role") ? text(input, "role", 100) : row.text(2);
+        const bool active = input.contains("active") ? input.at("active").as_bool() : row.integer(6) != 0;
         if (id == p.user_id && (!active || role != p.role)) throw ApiError(409, "conflict", "cannot disable or change your own role");
         Statement role_row(store->db, "SELECT scope_type FROM roles WHERE code=?"); role_row.bind(1, role);
         if (!role_row.step()) throw std::invalid_argument("unknown role");
-        auto org = input.has("org_id") ? text(input, "org_id", 100) : row.text(3);
-        auto cls = input.has("class_id") ? text(input, "class_id", 100) : row.text(4);
-        auto student = input.has("student_no") ? text(input, "student_no", 100) : row.text(5);
+        auto org = input.contains("org_id") ? text(input, "org_id", 100) : row.text(3);
+        auto cls = input.contains("class_id") ? text(input, "class_id", 100) : row.text(4);
+        auto student = input.contains("student_no") ? text(input, "student_no", 100) : row.text(5);
         validate_scope_identity(role_row.text(0), org, cls, student);
         Statement duplicate(store->db, "SELECT 1 FROM users WHERE student_no<>'' AND student_no=? AND id<>?"); duplicate.bind(1, student).bind(2, id);
         if (duplicate.step()) throw ApiError(409, "conflict", "student identity already exists");
         std::string salt, hash;
-        if (input.has("password")) {
+        if (input.contains("password")) {
             const auto password = text(input, "password", 1024);
             if (password.size() < 12) throw std::invalid_argument("password must have at least 12 characters");
             salt = random_token(""); hash = password_hash(password, salt);
@@ -241,8 +246,8 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         auto result = Json::array();
         Statement rows(store->db, "SELECT code,name,scope_type,permissions FROM roles ORDER BY code");
         while (rows.step()) {
-            auto item = Json::object(); item.set("code", Json::text(rows.text(0))); item.set("name", Json::text(rows.text(1)));
-            item.set("scope_type", Json::text(rows.text(2))); item.set("permissions", Json::parse(rows.text(3))); result.push(item);
+            auto item = Json::object(); item["code"] = Json(rows.text(0)); item["name"] = Json(rows.text(1));
+            item["scope_type"] = Json(rows.text(2)); item["permissions"] = Json::parse(rows.text(3)); result.push_back(item);
         }
         return json(200, result);
     });
@@ -253,7 +258,7 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         if (code.empty() || code.size() > 100 || code.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
             throw std::invalid_argument("invalid role code");
         if (type != "all" && type != "college" && type != "class" && type != "self") throw std::invalid_argument("invalid scope type");
-        const auto codes = string_list(input.get("permissions"));
+        const auto codes = string_list(input.at("permissions"));
         for (const auto& permission : codes) {
             Statement known(store->db, "SELECT 1 FROM permission_catalog WHERE code=?"); known.bind(1, permission);
             if (!known.step()) throw std::invalid_argument("unknown permission code");
@@ -263,8 +268,8 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         Statement old(store->db, "SELECT name,scope_type,permissions FROM roles WHERE code=?"); old.bind(1, code);
         AuditEvent event{"role.update", "role", code}; event.after = input;
         if (old.step()) {
-            event.before = Json::object(); event.before.set("name", Json::text(old.text(0)));
-            event.before.set("scope_type", Json::text(old.text(1))); event.before.set("permissions", Json::parse(old.text(2)));
+            event.before = Json::object(); event.before["name"] = Json(old.text(0));
+            event.before["scope_type"] = Json(old.text(1)); event.before["permissions"] = Json::parse(old.text(2));
         }
         sec->audited_write(p, event, [&](sqlite3* db) {
             Statement(db, "INSERT INTO roles VALUES(?,?,?,?) ON CONFLICT(code) DO UPDATE SET name=excluded.name,scope_type=excluded.scope_type,permissions=excluded.permissions")
@@ -277,7 +282,7 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         sec->authorize(request, sec->permitted(actor, "roles.manage") ? "roles.manage" : "users.manage");
         Statement rows(store->db, "SELECT code,name FROM permission_catalog ORDER BY code"); auto out = Json::array();
         while (rows.step()) {
-            auto item = Json::object(); item.set("code", Json::text(rows.text(0))); item.set("name", Json::text(rows.text(1))); out.push(item);
+            auto item = Json::object(); item["code"] = Json(rows.text(0)); item["name"] = Json(rows.text(1)); out.push_back(item);
         } return json(200, out);
     });
     add("GET", "/audit-logs", [sec, store](const Request& request) {
@@ -292,10 +297,10 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         int index = 3; for (const auto& value : filters) rows.bind(index++, value);
         rows.bind(index++, query_number(query, "limit", 100, 1, 200)); rows.bind(index, query_number(query, "offset", 0, 0, 100000000));
         while (rows.step()) {
-            auto item = Json::object(); item.set("id", Json::number(rows.integer(0))); item.set("created_at", Json::number(rows.integer(1)));
+            auto item = Json::object(); item["id"] = Json(rows.integer(0)); item["created_at"] = Json(rows.integer(1));
             const char* fields[] = {"actor_id", "action", "resource_type", "resource_id", "outcome", "reason", "request_id"};
-            for (int i = 2; i <= 8; ++i) item.set(fields[i - 2], Json::text(rows.text(i)));
-            item.set("before", Json::parse(rows.text(9))); item.set("after", Json::parse(rows.text(10))); result.push(item);
+            for (int i = 2; i <= 8; ++i) item[fields[i - 2]] = Json(rows.text(i));
+            item["before"] = Json::parse(rows.text(9)); item["after"] = Json::parse(rows.text(10)); result.push_back(item);
         }
         return json(200, result);
     });

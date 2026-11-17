@@ -48,6 +48,7 @@ public:
                         const Scope& resource = Scope{"", {}, {}, {}}) const;
     bool permitted(const Principal& principal, const std::string& permission) const;
     void register_permission(const std::string& code, const std::string& name) const;
+    void with_connection(const std::function<void(sqlite3*)>& operation) const;
     // Business SQL and the audit event use ONE SQLite transaction. Exceptions roll both back.
     void audited_write(const Principal& actor, AuditEvent& event,
                        const std::function<void(sqlite3*)>& write) const;

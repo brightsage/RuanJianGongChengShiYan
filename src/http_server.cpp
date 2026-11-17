@@ -1,17 +1,25 @@
 #include "http_server.hpp"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cerrno>
 #include <cctype>
+#include <cstddef>
 #include <fstream>
 #include <iostream>
 #include <iterator>
-#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -19,6 +27,20 @@ namespace platform {
 namespace {
 constexpr std::size_t max_header_bytes = 16 * 1024;
 constexpr std::size_t max_body_bytes = 1024 * 1024;
+
+#ifdef _WIN32
+using socket_handle = SOCKET;
+constexpr socket_handle invalid_socket = INVALID_SOCKET;
+#else
+using socket_handle = int;
+constexpr socket_handle invalid_socket = -1;
+#endif
+
+#ifdef MSG_NOSIGNAL
+constexpr int send_flags = MSG_NOSIGNAL;
+#else
+constexpr int send_flags = 0;
+#endif
 
 std::string status_text(int status) {
     switch (status) {
@@ -42,17 +64,48 @@ std::string status_text(int status) {
     }
 }
 
-void send_all(int fd, const std::string& data) {
+bool interrupted() {
+#ifdef _WIN32
+    return WSAGetLastError() == WSAEINTR;
+#else
+    return errno == EINTR;
+#endif
+}
+
+void close_socket(socket_handle fd) {
+#ifdef _WIN32
+    ::closesocket(fd);
+#else
+    ::close(fd);
+#endif
+}
+
+#ifdef _WIN32
+class WinsockGuard {
+public:
+    WinsockGuard() {
+        WSADATA data{};
+        if (WSAStartup(MAKEWORD(2, 2), &data) != 0)
+            throw std::runtime_error("WSAStartup failed");
+    }
+    ~WinsockGuard() { WSACleanup(); }
+    WinsockGuard(const WinsockGuard&) = delete;
+    WinsockGuard& operator=(const WinsockGuard&) = delete;
+};
+#endif
+
+void send_all(socket_handle fd, const std::string& data) {
     std::size_t sent = 0;
     while (sent < data.size()) {
-        const auto count = ::send(fd, data.data() + sent, data.size() - sent, MSG_NOSIGNAL);
-        if (count < 0 && errno == EINTR) continue;
+        const int count = ::send(fd, data.data() + sent,
+                                 static_cast<int>(data.size() - sent), send_flags);
+        if (count < 0 && interrupted()) continue;
         if (count <= 0) return;
         sent += static_cast<std::size_t>(count);
     }
 }
 
-void send_response(int fd, const Response& response) {
+void send_response(socket_handle fd, const Response& response) {
     std::string head = "HTTP/1.1 " + std::to_string(response.status) + " " +
                        status_text(response.status) + "\r\n";
     head += "Content-Type: " + response.content_type + "\r\n";
@@ -82,6 +135,12 @@ Response static_file(const std::string& path) {
     if (path == "/") {
         filename = "index.html";
         type = "text/html; charset=utf-8";
+    } else if (path == "/career") {
+        filename = "career.html";
+        type = "text/html; charset=utf-8";
+    } else if (path == "/career.js") {
+        filename = "career.js";
+        type = "text/javascript; charset=utf-8";
     } else if (path == "/app.js") {
         filename = "app.js";
         type = "text/javascript; charset=utf-8";
@@ -106,13 +165,13 @@ Response static_file(const std::string& path) {
     return {200, type, std::string(std::istreambuf_iterator<char>(file), {})};
 }
 
-Response receive_and_handle(int fd, const App& app) {
+Response receive_and_handle(socket_handle fd, const App& app) {
     std::string raw;
     char buffer[4096];
     std::size_t split = std::string::npos;
     while ((split = raw.find("\r\n\r\n")) == std::string::npos) {
         if (raw.size() > max_header_bytes) return error_response(413, "headers too large");
-        const auto count = ::recv(fd, buffer, sizeof(buffer), 0);
+        const auto count = ::recv(fd, buffer, static_cast<int>(sizeof(buffer)), 0);
         if (count <= 0) return error_response(400, "incomplete request");
         raw.append(buffer, static_cast<std::size_t>(count));
     }
@@ -164,13 +223,17 @@ Response receive_and_handle(int fd, const App& app) {
     request.body = raw.substr(split + 4);
     if (request.body.size() > length) request.body.resize(length);
     while (request.body.size() < length) {
-        const auto count = ::recv(fd, buffer,
-                                  std::min(sizeof(buffer), length - request.body.size()), 0);
+        const auto count = ::recv(
+            fd, buffer,
+            static_cast<int>(std::min<std::size_t>(sizeof(buffer), length - request.body.size())),
+            0);
         if (count <= 0) return error_response(400, "incomplete body");
         request.body.append(buffer, static_cast<std::size_t>(count));
     }
-    if (request.path == "/" || request.path == "/app.js" || request.path == "/style.css" ||
-        request.path == "/data-services" || request.path == "/data-services.js" || request.path == "/data-services.css") {
+    if (request.path == "/" || request.path == "/career" || request.path == "/career.js" ||
+        request.path == "/app.js" || request.path == "/style.css" ||
+        request.path == "/data-services" || request.path == "/data-services.js" ||
+        request.path == "/data-services.css") {
         if (request.method != "GET") return error_response(405, "method not allowed");
         return static_file(request.path);
     }
@@ -179,35 +242,45 @@ Response receive_and_handle(int fd, const App& app) {
 }  // namespace
 
 void serve(const App& app, std::uint16_t port) {
-    const int listener = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (listener < 0) throw std::runtime_error("socket failed");
+#ifdef _WIN32
+    WinsockGuard winsock;
+#endif
+    const socket_handle listener = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (listener == invalid_socket) throw std::runtime_error("socket failed");
     int reuse = 1;
-    ::setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    ::setsockopt(listener, SOL_SOCKET, SO_REUSEADDR,
+                 reinterpret_cast<const char*>(&reuse), sizeof(reuse));
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = htons(port);
     if (::bind(listener, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0 ||
         ::listen(listener, 16) < 0) {
-        ::close(listener);
+        close_socket(listener);
         throw std::runtime_error("bind or listen failed");
     }
     std::cout << "Open http://127.0.0.1:" << port << "/\n" << std::flush;
     while (true) {
-        const int client = ::accept(listener, nullptr, nullptr);
-        if (client < 0) {
-            if (errno == EINTR) continue;
-            ::close(listener);
+        const socket_handle client = ::accept(listener, nullptr, nullptr);
+        if (client == invalid_socket) {
+            if (interrupted()) continue;
+            close_socket(listener);
             throw std::runtime_error("accept failed");
         }
+#ifdef _WIN32
+        DWORD timeout = 5000;
+        ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO,
+                     reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+#else
         timeval timeout{5, 0};
         ::setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
         try {
             send_response(client, receive_and_handle(client, app));
         } catch (const std::exception& error) {
             send_response(client, error_response(500, error.what()));
         }
-        ::close(client);
+        close_socket(client);
     }
 }
 }  // namespace platform

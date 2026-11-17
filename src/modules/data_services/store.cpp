@@ -19,20 +19,20 @@ std::string hex(const unsigned char* bytes, std::size_t length) {
     return out.str();
 }
 Json scrub(const Json& value) {
-    if (value.is(json_type_array)) {
+    if (value.is_array()) {
         auto out = Json::array();
-        for (std::size_t i = 0; i < value.size(); ++i) out.push(scrub(value.at(i)));
+        for (std::size_t i = 0; i < value.as_array().size(); ++i) out.push_back(scrub(value.at(i)));
         return out;
     }
-    if (!value.is(json_type_object)) return value;
+    if (!value.is_object()) return value;
     auto out = Json::object();
-    json_object_object_foreach(value.raw(), key, item) {
+    for (const auto& [key, item] : value.as_object()) {
         std::string lower = key;
         std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
         const bool sensitive = lower.find("password") != std::string::npos || lower.find("token") != std::string::npos ||
             lower.find("secret") != std::string::npos || lower == "authorization" || lower == "student_no" ||
             lower == "id_card" || lower == "phone" || lower == "email" || lower == "score" || lower == "name";
-        out.set(key, sensitive ? Json::text("[redacted]") : scrub(Json(json_object_get(item))));
+        out[key] = sensitive ? Json("[redacted]") : scrub(item);
     }
     return out;
 }
@@ -90,13 +90,13 @@ std::string password_hash(const std::string& password, const std::string& salt) 
     return hex(bytes, sizeof(bytes));
 }
 Json strings(const std::vector<std::string>& values) {
-    auto out = Json::array(); for (const auto& value : values) out.push(Json::text(value)); return out;
+    auto out = Json::array(); for (const auto& value : values) out.push_back(Json(value)); return out;
 }
 std::vector<std::string> string_list(const Json& value) {
-    if (!value.is(json_type_array) || value.size() > 100) throw std::invalid_argument("expected array of at most 100 strings");
+    if (!value.is_array() || value.as_array().size() > 100) throw std::invalid_argument("expected array of at most 100 strings");
     std::vector<std::string> out;
-    for (std::size_t i = 0; i < value.size(); ++i) {
-        auto item = value.at(i).string();
+    for (std::size_t i = 0; i < value.as_array().size(); ++i) {
+        auto item = value.at(i).as_string();
         if (item.empty() || item.size() > 100 || std::find(out.begin(), out.end(), item) != out.end())
             throw std::invalid_argument("invalid or duplicate array entry");
         out.push_back(std::move(item));
@@ -104,19 +104,19 @@ std::vector<std::string> string_list(const Json& value) {
     return out;
 }
 std::string text(const Json& object, const std::string& key, std::size_t max) {
-    auto value = object.get(key).string();
+    auto value = object.at(key).as_string();
     if (value.empty() || value.size() > max || value.find('\0') != std::string::npos)
         throw std::invalid_argument("invalid " + key);
     return value;
 }
 std::int64_t integer(const Json& object, const std::string& key, std::int64_t min, std::int64_t max) {
-    auto value = object.get(key).integer();
+    auto value = object.at(key).as_int64();
     if (value < min || value > max) throw std::invalid_argument("invalid " + key);
     return value;
 }
 Json body(const Request& request) {
     auto value = Json::parse(request.body);
-    if (!value.is(json_type_object)) throw std::invalid_argument("body must be a JSON object");
+    if (!value.is_object()) throw std::invalid_argument("body must be a JSON object");
     return value;
 }
 Response json(int status, const Json& value) {
@@ -188,7 +188,8 @@ Store::Store(const AppOptions& options) : clock_(options.clock) {
         role("data_admin", "数据管理员", "all", {"services.publish", "grants.approve", "services.read"});
         role("college_admin", "院系管理员", "college", {"grants.apply", "services.read"});
         role("third_party", "第三方应用", "college", {"grants.apply", "services.read"});
-        role("career_center", "就业指导中心", "all", {"career.jobs.read", "career.jobs.write", "career.jobs.publish", "career.strategy.write"});
+        role("career_center", "就业指导中心", "all", {"career.jobs.read", "career.jobs.write",
+            "career.jobs.publish", "career.strategy.write", "career.outcomes.read"});
         role("student", "学生", "self", {"career.recommendations.read"});
         role("counselor", "辅导员", "class", {});
         for (const auto& field : {"student_no", "id_card", "phone", "name"})

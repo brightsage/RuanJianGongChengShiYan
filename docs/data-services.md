@@ -2,9 +2,9 @@
 
 本模块覆盖实验报告的 UC-DS-01～UC-DS-08，管理页为 `/data-services`。
 
-构建依赖：SQLite3、OpenSSL、json-c 的开发包。Debian/Ubuntu 可安装 `libsqlite3-dev libssl-dev libjson-c-dev pkg-config`。
+构建依赖为 OpenSSL 开发包。SQLite 和 JSON 使用平台共享实现。
 
-首次启动设置 `PLATFORM_ADMIN_PASSWORD`（至少 12 个字符），创建用户名为 `admin` 的系统管理员。默认数据库为 `data/platform.sqlite3`，可通过 `PLATFORM_DB` 指定。已有数据库不会因重启重置密码。
+首次启动设置 `PLATFORM_ADMIN_PASSWORD`（至少 12 个字符），创建用户名为 `admin` 的系统管理员。默认数据库为 `data/platform.db`，可通过 `PLATFORM_DB_PATH` 指定，兼容旧环境变量 `PLATFORM_DB`。已有数据库不会因重启重置密码。
 
 请求前缀：`/api/modules/data-services`。登录 `POST /login` 提交 `username,password`，返回 Bearer `access_token` 和 Unix 秒 `expires_at`。令牌只返回一次，数据库仅保存摘要；有效期 1 小时。`GET /me` 获取当前身份，`POST /logout` 撤销当前会话。
 
@@ -14,7 +14,7 @@
 
 其他模块调用 `app.security()->authorize(request, permission, scope)`，从返回的 `Principal.student_no` 获取学生本人学号。无登录或登录失效返回 401；权限或资源范围不足返回 403。范围支持 `all/college/class/self`，资源范围应由服务端查询真实记录得到。省略 scope 仅做功能权限检查。
 
-就业中心角色为 `career_center`，有 `career.jobs.read/write/publish`、`career.strategy.write` 四个权限，范围为全校。学生为 `student`，拥有 `career.recommendations.read`，范围为本人。
+就业中心角色为 `career_center`，新数据库默认有 `career.jobs.read/write/publish`、`career.strategy.write`、`career.outcomes.read` 五个权限，范围为全校。旧数据库的角色权限由管理员在角色管理中追加。学生为 `student`，拥有 `career.recommendations.read`，范围为本人。
 
 公共接口在 `include/platform/security.hpp`。其他模块可调用 `audited_write(principal, event, callback)`，在 callback 的同一 SQLite 连接内完成业务 SQL。函数在业务操作后写入审计并提交；业务或审计任一失败都会回滚。不得在 callback 内自行提交事务或执行外部副作用。`AuditEvent` 必填 action、resource_type、resource_id，支持 before/after；密码、令牌、学号、联系方式等字段会自动脱敏。`GET /audit-logs` 仅对具有 `audit.read` 权限的账号开放。
 
@@ -79,7 +79,7 @@ Authorization: Bearer usr_<redacted>
 | system_admin | users.manage、roles.manage、masking.manage、audit.read | 全校 |
 | data_admin | services.publish、grants.approve、services.read | 全校 |
 | college_admin / third_party | grants.apply、services.read | 本学院 |
-| career_center | career.jobs.read、career.jobs.write、career.jobs.publish、career.strategy.write | 全校 |
+| career_center | career.jobs.read、career.jobs.write、career.jobs.publish、career.strategy.write、career.outcomes.read | 全校 |
 | student | career.recommendations.read | 本人 |
 | counselor | 由对应业务模块注册并分配 | 本班 |
 

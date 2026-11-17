@@ -34,7 +34,8 @@ class Server:
             sock.bind(("127.0.0.1", 0))
             self.port = sock.getsockname()[1]
         self.process = subprocess.Popen([sys.argv[1], str(self.port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-            env={**os.environ, "PLATFORM_DB": self.database, "PLATFORM_ADMIN_PASSWORD": "http-admin-password"})
+            env={**os.environ, "PLATFORM_DB_PATH": self.database, "PLATFORM_CAREER_DEMO": "0",
+                 "PLATFORM_ADMIN_PASSWORD": "http-admin-password"})
         for _ in range(60):
             try:
                 request(self.port, "GET", "/api/health")
@@ -87,7 +88,8 @@ def main():
             session_hash = db.execute("SELECT token_hash FROM sessions LIMIT 1").fetchone()[0]
             assert session_hash not in [admin, data, client]
             assert db.execute("SELECT token_hash FROM grants").fetchone()[0] != service_token
-        assert os.stat(database).st_mode & 0o077 == 0, "database must be private to the server account"
+        if os.name != "nt":
+            assert os.stat(database).st_mode & 0o077 == 0, "database must be private to the server account"
         with Server(database) as server:
             assert server.call("GET", "/me", token=admin)["role"] == "system_admin"
             assert server.call("GET", "/applications", token=client)[0]["status"] == "approved"
