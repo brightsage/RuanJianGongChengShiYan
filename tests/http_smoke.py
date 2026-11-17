@@ -2,6 +2,7 @@
 
 import http.client
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -23,7 +24,8 @@ def main():
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     process = subprocess.Popen(
-        [sys.argv[1], str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+        [sys.argv[1], str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        env={**os.environ, "PLATFORM_DB": ":memory:", "PLATFORM_ADMIN_PASSWORD": "smoke-test-password"},
     )
     try:
         for _ in range(40):
@@ -40,7 +42,8 @@ def main():
         status, body = request(port, "GET", "/api/modules")
         assert status == 200
         modules = json.loads(body)
-        assert len(modules) == 6 and all(module["routes"] == [] for module in modules)
+        assert len(modules) == 6
+        assert next(module for module in modules if module["id"] == "data-services")["routes"]
         status, body = request(port, "GET", "/")
         assert status == 200 and "接口测试台" in body
         status, body = request(port, "GET", "/api/modules/student-profile/123")
