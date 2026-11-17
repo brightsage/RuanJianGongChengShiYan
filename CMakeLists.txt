@@ -5,7 +5,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-find_package(OpenSSL REQUIRED)
 
 if(MSVC)
     add_compile_options(/W4 /utf-8)
@@ -29,6 +28,7 @@ add_library(platform_core
     src/platform/json.cpp
     src/platform/db.cpp
     src/platform/api.cpp
+    src/platform/crypto.cpp
     src/modules/data_ingestion/module.cpp
     src/modules/data_ingestion/service.cpp
     src/modules/data_ingestion/sqlite_repository.cpp
@@ -56,7 +56,7 @@ add_library(platform_core
     src/modules/data_services/gateway.cpp
 )
 target_include_directories(platform_core PUBLIC include ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(platform_core PUBLIC platform_sqlite OpenSSL::Crypto)
+target_link_libraries(platform_core PUBLIC platform_sqlite)
 
 add_executable(platform_server src/main.cpp src/http_server.cpp)
 target_link_libraries(platform_server PRIVATE platform_core)
@@ -77,11 +77,13 @@ add_test(NAME data_governance_tests COMMAND data_governance_tests)
 add_executable(platform_storage_tests tests/storage_test.cpp)
 target_link_libraries(platform_storage_tests PRIVATE platform_core)
 add_test(NAME platform_storage_tests COMMAND platform_storage_tests)
+
 foreach(suite IN ITEMS security service gateway)
     add_executable(${suite}_tests tests/${suite}_test.cpp)
     target_link_libraries(${suite}_tests PRIVATE platform_core)
     add_test(NAME ${suite}_tests COMMAND ${suite}_tests)
 endforeach()
+
 add_executable(career_profile_tests tests/career_profile_test.cpp)
 target_link_libraries(career_profile_tests PRIVATE platform_core)
 add_test(NAME career_profile_tests COMMAND career_profile_tests)
@@ -92,7 +94,7 @@ add_test(NAME platform_module_tests COMMAND platform_module_tests)
 
 # MinGW 下静态链接运行库，生成的 exe 不依赖 w64devkit 的 DLL。
 if(MINGW)
-    foreach(target platform_server platform_tests data_governance_tests platform_storage_tests platform_module_tests)
+    foreach(target platform_server platform_tests data_governance_tests platform_storage_tests platform_module_tests security_tests service_tests gateway_tests career_profile_tests)
         target_link_options(${target} PRIVATE -static)
     endforeach()
 endif()

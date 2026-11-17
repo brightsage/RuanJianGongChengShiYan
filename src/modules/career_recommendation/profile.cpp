@@ -2,8 +2,7 @@
 
 #include "catalog.hpp"
 #include "modules/student_profile/sqlite_repository.hpp"
-
-#include <openssl/evp.h>
+#include "platform/crypto.hpp"
 
 #include <cmath>
 #include <iomanip>
@@ -16,15 +15,7 @@ namespace platform::career {
 namespace {
 
 std::string version_digest(const std::string& data) {
-    unsigned char digest[EVP_MAX_MD_SIZE];
-    unsigned int size = 0;
-    if (EVP_Digest(data.data(), data.size(), digest, &size, EVP_sha256(), nullptr) != 1) {
-        throw std::runtime_error("cannot identify the student profile version");
-    }
-    std::ostringstream hex;
-    hex << std::hex << std::setfill('0');
-    for (unsigned int i = 0; i < size; ++i) hex << std::setw(2) << unsigned(digest[i]);
-    return hex.str();
+    return platform::crypto::sha256_hex(data);
 }
 
 std::optional<double> normalize(const student_profile::MetricValue& metric) {

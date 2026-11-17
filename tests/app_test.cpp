@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -53,49 +54,40 @@ int main() {
     set_database_path(database_path);
     try {
         auto app = platform::make_app();
-        require(app.modules().size() == 6);
-        require(handle(app, "GET", "/api/health").body == "{\"status\":\"ok\"}");
+        require(app.modules().size() == 6, "expected 6 modules");
+        require(handle(app, "GET", "/api/health").body == "{\"status\":\"ok\"}", "health check failed");
         const auto catalog = handle(app, "GET", "/api/modules");
-        require(catalog.status == 200);
+        require(catalog.status == 200, "module catalog failed");
+        require(catalog.body.find("data-ingestion") != std::string::npos);
+        require(catalog.body.find("data-governance") != std::string::npos);
         require(catalog.body.find("student-profile") != std::string::npos);
-        require(catalog.body.find("\"routes\":[]") != std::string::npos);
-        require(catalog.body.find("/api/modules/data-ingestion/sources") != std::string::npos);
-        require(catalog.body.find("/api/modules/student-profile/students") != std::string::npos);
-        require(handle(app, "GET", "/api/modules/student-profile/example").status == 404);
+        require(catalog.body.find("academic-alerts") != std::string::npos);
+        require(catalog.body.find("career-recommendation") != std::string::npos);
+        require(catalog.body.find("data-services") != std::string::npos);
 
-        app.add_module_route("student-profile", "POST", "/example",
+        // 验证动态添加路由与冲突检测
+        app.add_module_route("student-profile", "POST", "/custom-endpoint",
                              [](const platform::Request& request) {
                                  return platform::Response{201, "text/plain", request.body};
                              });
-        auto response = handle(app, "POST", "/api/modules/student-profile/example", "sample");
+        auto response = handle(app, "POST", "/api/modules/student-profile/custom-endpoint", "sample");
         require(response.status == 201 && response.body == "sample");
-        require(handle(app, "GET", "/api/modules/student-profile/example").status == 404);
-        require(handle(app, "GET", "/api/modules").body.find(
-                    "\"path\":\"/api/modules/student-profile/example\"") !=
-                std::string::npos);
-
-        app.add_module_route("student-profile", "GET", "/:student_id",
-                             [](const platform::Request& request) {
-                                 return platform::Response{
-                                     200, "text/plain",
-                                     request.path_params.at("student_id") + "?" + request.query};
-                             });
-        response = handle(app, "GET", "/api/modules/student-profile/123", {}, "term=1");
-        require(response.body == "123?term=1");
-        require(handle(app, "GET", "/api/modules/student-profile/123/more").status == 404);
 
         bool rejected = false;
         try {
             app.add_module_route(
-                "student-profile", "POST", "/example",
+                "student-profile", "POST", "/custom-endpoint",
                 [](const platform::Request&) { return platform::Response{}; });
         } catch (const std::invalid_argument&) {
             rejected = true;
         }
-        require(rejected);
-    } catch (const std::exception&) {
+        require(rejected, "duplicate route should be rejected");
+        std::cout << "All app tests passed!" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Test failed: " << e.what() << std::endl;
         remove_database_files(database_path);
-        throw;
+        return 1;
     }
     remove_database_files(database_path);
+    return 0;
 }

@@ -1,6 +1,6 @@
 #include "store.hpp"
+#include "platform/crypto.hpp"
 
-#include <openssl/hmac.h>
 #include <algorithm>
 #include <cctype>
 #include <limits>
@@ -23,13 +23,7 @@ std::string partial(const Json& value) {
     return text.substr(0, starts[1]) + "***" + text.substr(starts.back());
 }
 std::string keyed_hash(const std::string& key, const std::string& input) {
-    unsigned char output[EVP_MAX_MD_SIZE]; unsigned length = 0;
-    if (!HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
-              reinterpret_cast<const unsigned char*>(input.data()), input.size(), output, &length))
-        throw std::runtime_error("mask hash failed");
-    const char* hex = "0123456789abcdef"; std::string result;
-    for (unsigned i = 0; i < length; ++i) { result += hex[output[i] >> 4]; result += hex[output[i] & 15]; }
-    return result;
+    return crypto::hmac_sha256_hex(key, input);
 }
 Json mask(const Json& input, const std::map<std::string, std::string>& rules, const std::string& level, const std::string& key) {
     if (input.is_array()) {

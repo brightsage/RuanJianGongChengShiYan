@@ -60,7 +60,7 @@ class Server:
 
 
 def main():
-    with tempfile.TemporaryDirectory(prefix="platform-services-") as directory:
+    with tempfile.TemporaryDirectory(prefix="platform-services-", ignore_cleanup_errors=True) as directory:
         database = os.path.join(directory, "platform.sqlite3")
         with Server(database) as server:
             for path, marker in [("/data-services", "用户管理"), ("/data-services.js", "Authorization"), ("/data-services.css", "hidden")]:

@@ -1,6 +1,6 @@
 #include "store.hpp"
+#include "platform/crypto.hpp"
 
-#include <openssl/crypto.h>
 #include <algorithm>
 #include <limits>
 #include <exception>
@@ -151,7 +151,7 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         const auto hash = password_hash(password, found ? user.text(2) : "unknown-user-fixed-salt");
         const auto expected = found ? user.text(1) : std::string(64, '0');
         AuditEvent event{"login", "identity", resource};
-        if (!found || user.integer(3) == 0 || CRYPTO_memcmp(hash.data(), expected.data(), hash.size()) != 0) {
+        if (!found || user.integer(3) == 0 || !platform::crypto::timing_safe_equal(hash, expected)) {
             event.outcome = "failure"; event.reason = "invalid_credentials";
             store->audit("anonymous", event);
             throw ApiError(401, "unauthorized", "invalid credentials");

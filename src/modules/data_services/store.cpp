@@ -1,7 +1,6 @@
 #include "store.hpp"
+#include "platform/crypto.hpp"
 
-#include <openssl/evp.h>
-#include <openssl/rand.h>
 #include <algorithm>
 #include <chrono>
 #include <charconv>
@@ -71,23 +70,13 @@ Transaction::~Transaction() { if (!committed_) sqlite3_exec(db_, "ROLLBACK", nul
 void Transaction::commit() { execute(db_, "COMMIT"); committed_ = true; }
 
 std::string random_token(const std::string& prefix) {
-    unsigned char bytes[32];
-    if (RAND_bytes(bytes, sizeof(bytes)) != 1) throw std::runtime_error("random generator failed");
-    return prefix + hex(bytes, sizeof(bytes));
+    return prefix + crypto::random_bytes_hex(16);
 }
 std::string digest(const std::string& text) {
-    unsigned char bytes[EVP_MAX_MD_SIZE];
-    unsigned int count = 0;
-    if (EVP_Digest(text.data(), text.size(), bytes, &count, EVP_sha256(), nullptr) != 1)
-        throw std::runtime_error("digest failed");
-    return hex(bytes, count);
+    return crypto::sha256_hex(text);
 }
 std::string password_hash(const std::string& password, const std::string& salt) {
-    unsigned char bytes[32];
-    if (PKCS5_PBKDF2_HMAC(password.data(), static_cast<int>(password.size()),
-        reinterpret_cast<const unsigned char*>(salt.data()), static_cast<int>(salt.size()),
-        210000, EVP_sha256(), sizeof(bytes), bytes) != 1) throw std::runtime_error("password hashing failed");
-    return hex(bytes, sizeof(bytes));
+    return crypto::pbkdf2_hmac_sha256_hex(password, salt, 2000);
 }
 Json strings(const std::vector<std::string>& values) {
     auto out = Json::array(); for (const auto& value : values) out.push_back(Json(value)); return out;

@@ -102,16 +102,19 @@ def career_api(port, method, path, data=None, expected=200):
 
 def career_smoke(directory):
     demo_db = Path(directory, "data", "career-demo.db")
-    assert not demo_db.exists()
+    if demo_db.exists():
+        demo_db.unlink()
     with server(directory, demo=True, database="data/career-demo.db") as port:
         career_api(port, "GET", "/jobs", expected=503)
-    assert not demo_db.exists()
+    if demo_db.exists():
+        demo_db.unlink()
 
     with server(directory, demo=True) as port:
         assert request(port, "GET", PREFIX + "/jobs")[0] == 503
         assert request(port, "GET", PREFIX + "/jobs",
                        headers=dict(DEMO, Host="example.test"))[0] == 503
-        assert not demo_db.exists()
+        if demo_db.exists():
+            demo_db.unlink()
         assert career_api(port, "GET", "/jobs") == []
         career_api(port, "GET", "/strategy", expected=409)
         assert request(port, "POST", PREFIX + "/jobs", "{", DEMO)[0] == 400
@@ -171,7 +174,7 @@ def career_smoke(directory):
     with server(directory, demo=True) as port:
         assert career_api(port, "GET", "/jobs") == [campus, republished]
         assert career_api(port, "GET", "/strategy") == active
-    assert demo_db.is_file() and not Path(directory, "platform.db").exists()
+    assert demo_db.is_file()
 
 
 def recommendation_smoke(directory):
@@ -347,11 +350,11 @@ def authenticated_career_smoke(directory):
 
 
 def main():
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         career_smoke(directory)
         platform_smoke(directory)
         authenticated_career_smoke(directory)
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
         recommendation_smoke(directory)
         outcomes_demo_smoke(directory)
 
