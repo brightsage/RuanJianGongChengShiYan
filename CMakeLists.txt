@@ -33,6 +33,11 @@ add_library(platform_core
     src/modules/data_ingestion/service.cpp
     src/modules/data_ingestion/sqlite_repository.cpp
     src/modules/data_governance/module.cpp
+    src/modules/data_governance/types.cpp
+    src/modules/data_governance/quality_rules.cpp
+    src/modules/data_governance/student_master.cpp
+    src/modules/data_governance/metrics.cpp
+    src/modules/data_governance/quality_report.cpp
     src/modules/student_profile/module.cpp
     src/modules/student_profile/service.cpp
     src/modules/student_profile/sqlite_repository.cpp
@@ -55,9 +60,6 @@ target_link_libraries(platform_core PUBLIC platform_sqlite OpenSSL::Crypto)
 
 add_executable(platform_server src/main.cpp src/http_server.cpp)
 target_link_libraries(platform_server PRIVATE platform_core)
-if(WIN32)
-    target_link_libraries(platform_server PRIVATE ws2_32)
-endif()
 target_compile_definitions(platform_server PRIVATE PLATFORM_WEB_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/web")
 if(WIN32)
     target_link_libraries(platform_server PRIVATE ws2_32)
@@ -67,6 +69,10 @@ enable_testing()
 add_executable(platform_tests tests/app_test.cpp)
 target_link_libraries(platform_tests PRIVATE platform_core)
 add_test(NAME platform_tests COMMAND platform_tests)
+
+add_executable(data_governance_tests tests/test_data_governance.cpp)
+target_link_libraries(data_governance_tests PRIVATE platform_core)
+add_test(NAME data_governance_tests COMMAND data_governance_tests)
 
 add_executable(platform_storage_tests tests/storage_test.cpp)
 target_link_libraries(platform_storage_tests PRIVATE platform_core)
@@ -86,7 +92,7 @@ add_test(NAME platform_module_tests COMMAND platform_module_tests)
 
 # MinGW 下静态链接运行库，生成的 exe 不依赖 w64devkit 的 DLL。
 if(MINGW)
-    foreach(target platform_server platform_tests platform_storage_tests platform_module_tests)
+    foreach(target platform_server platform_tests data_governance_tests platform_storage_tests platform_module_tests)
         target_link_options(${target} PRIVATE -static)
     endforeach()
 endif()
