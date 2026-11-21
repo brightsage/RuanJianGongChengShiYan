@@ -1,14 +1,15 @@
 #pragma once
 
-#include "platform/security.hpp"
 #include "platform/data_services.hpp"
-#include <sqlite3.h>
+#include "platform/db.hpp"
+#include "platform/security.hpp"
+
 #include <mutex>
 
 namespace platform::data_services {
 class Statement {
 public:
-    Statement(sqlite3* db, const std::string& sql);
+    Statement(Database& db, std::string sql);
     ~Statement();
     Statement(const Statement&) = delete;
     Statement& operator=(const Statement&) = delete;
@@ -17,32 +18,46 @@ public:
     bool step();
     std::string text(int index) const;
     std::int64_t integer(int index) const;
+
 private:
-    sqlite3_stmt* statement_ = nullptr;
+    Database* db_;
+    std::string sql_;
+    std::vector<DbValue> params_;
+    DbRows rows_;
+    std::size_t row_ = 0;
+    bool executed_ = false;
 };
-void execute(sqlite3* db, const std::string& sql);
+
+void execute(Database& db, const std::string& sql);
+
 class Transaction {
 public:
-    explicit Transaction(sqlite3* db);
+    explicit Transaction(Database& db);
     ~Transaction();
     void commit();
+
 private:
-    sqlite3* db_;
+    Database& db_;
     bool committed_ = false;
 };
+
 class Store {
 public:
     explicit Store(const AppOptions& options);
-    ~Store();
+    ~Store() = default;
     Store(const Store&) = delete;
     Store& operator=(const Store&) = delete;
+
     std::int64_t now() const { return clock_(); }
     void audit(const std::string& actor, const security::AuditEvent& event);
-    sqlite3* db = nullptr;
+
+    Database db;
     mutable std::recursive_mutex mutex;
+
 private:
     std::function<std::int64_t()> clock_;
 };
+
 std::string random_token(const std::string& prefix);
 std::string digest(const std::string& text);
 std::string password_hash(const std::string& password, const std::string& salt);

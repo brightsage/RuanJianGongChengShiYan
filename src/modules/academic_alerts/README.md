@@ -18,7 +18,7 @@ M2 指标值（综合成绩、挂科门数、学分完成率、出勤率）
    M4 规则判定 ──► 分级预警名单 ──► 辅导员认领 / 谈话 / 记录 ──► 关闭 or 跟踪
 ```
 
-- **上游依赖**：M2 数据治理产出的指标值（当前用内存种子数据模拟，接口已按指标名解耦）
+- **上游依赖**：M2 数据治理产出的指标值（`sp_metric_value`），学生基本信息来自 M3 的 `sp_student`；指标码通过绑定表换算成规则指标名
 - **下游消费**：M3 画像可引用预警状态作为标签；M6 数据服务可将预警统计封装为对外 API
 
 ### 1.1 代码结构
@@ -26,8 +26,8 @@ M2 指标值（综合成绩、挂科门数、学分完成率、出勤率）
 | 文件 | 职责 | Java 里的对应 |
 | --- | --- | --- |
 | `module.cpp` | 只做模块与路由注册（9 条路由） | 配置类 / `@RequestMapping` 声明 |
-| `alerts_api.cpp` | 9 个 handler：参数校验 + JSON 组装 | `@RestController` |
-| `alerts_store.cpp` | 种子数据、查询、规则判定、时间与状态 | Repository + Service |
+| `alerts_api.cpp` | 9 个 handler：参数校验、数据范围过滤、规则判定、JSON 组装 | `@RestController` + Service |
+| `repository.cpp` / `repository.hpp` | `aa_*` 表读写、`sp_student`/`sp_metric_value` 只读、种子规则 | Repository |
 | `alerts.hpp` | 领域模型与函数声明 | 实体 + 接口 |
 | `json_util.hpp` | JSON 转义/解析、查询串解析（header-only） | Jackson 的极小替代品 |
 
@@ -40,6 +40,7 @@ M2 指标值（综合成绩、挂科门数、学分完成率、出勤率）
 | UC-AA-01 查看学业看板 | 班级/专业/年级的学业指标概览与分布 | `GET /dashboard` | 支持 `class`、`major` 过滤 |
 | UC-AA-02 群体分析 | 按维度下钻对比 | `GET /dashboard?group=` | `class` / `major` / `grade` |
 | UC-AA-03 配置预警规则 | 设置触发条件、阈值、等级与通知对象 | `GET /rules`、`POST /rules` | 指标、运算符、阈值、等级四要素校验 |
+| 启停/调整规则 | 修改已配置规则 | `PATCH /rules/:rule_id` | 支持 `enabled` / `threshold` / `level` / `notify`；要求全校范围 |
 | UC-AA-04 生成预警名单 | 按规则周期计算并生成分级名单 | `POST /alerts/generate` | 幂等：同学生同规则存在未关闭预警时不重复生成 |
 | | 查看预警名单 | `GET /alerts` | 支持 `status`、`level`、`class` 过滤 |
 | UC-AA-05 处置预警 | 认领、记录措施、更新状态 | `POST /alerts/:id/claim`、`POST /alerts/:id/handle` | 越权不可认领；未填措施不得关闭 |
@@ -184,16 +185,45 @@ GET /api/modules/academic-alerts/students/2021007/trend
 
 ---
 
-## 6. 数据模型（当前为内存实现）
+## 6. 数据模型（MySQL 落库）
 
-| 结构 | 主要字段 | 说明 |
+### 6.1 表结构
+
+| 表 | 主要字段 | 说明 |
 | --- | --- | --- |
-| `Student` | `id`、`name`、`class_name`、`major`、`grade`、`avg_score`、`failed_courses`、`credit_rate`、`attendance`、`trend[]` | 12 名种子学生、3 个班级 |
-| `Rule` | `id`、`name`、`metric`、`op`、`threshold`、`level`、`notify`、`enabled` | 默认 R1～R4 |
-| `Alert` | `id`、`student_id`、`rule_id`、`level`、`status`、`created`、`assignee`、`metric_value`、`interventions[]` | 触发时快照指标值 |
-| `Intervention` | `at`、`action`、`measures`、`note`、`by` | 认领与每次处置都留痕 |
+| `aa_alert_rule` | `id`（R1…）、`name`、`metric`、`operator`、`threshold`、`level`、`notify`、`enabled` | 默认 R1～R4，启动时 `INSERT IGNORE` |
+| `aa_alert_record` | `id`、`student_id`、`rule_id`、`level`、`status`、`metric_value`、`metric_term`、`created_at`（epoch）、`assignee` | 触发时快照指标值与学期 |
+| `aa_intervention` | `alert_id`、`action`、`measures`、`note`、`actor`、`created_at`（epoch） | 认领与每次处置都留痕，随预警级联删除 |
 
-数据放在 `alerts_store.cpp` 的静态变量里，进程重启即重置——这是实验阶段的刻意选择，接口层已与存储解耦，替换为数据库时只需改 `alerts_store.cpp` 的读写。
+`created_at` 用 BIGINT 存 epoch，序列化时转 ISO-8601；超过 48 小时未关闭 `overdue=true`。
+生成预警的幂等由 `has_active_alert(student_id, rule_id)` 保证：同一学生同一规则存在 `open/claimed` 记录时跳过，关闭后可以再次生成。
+
+### 6.2 学生与指标来源（只读）
+
+- 学生：`sp_student`（`student_id`、`name`、`class_name`、`major`、`grade`、`org_id`）。
+- 指标：`sp_metric_value`，每个指标取最新学期。
+- 指标绑定（规则里的 `metric` → M2 指标码，含换算系数）：
+
+| 规则指标 | M2 指标码 | 换算 |
+| --- | --- | --- |
+| `avg_score` | `score_avg` | ×1 |
+| `failed_courses` | `failed_courses` | ×1 |
+| `credit_rate` | `credit_rate` | ×1 |
+| `attendance` | `attendance_rate` | ×0.01（M2 存百分比，规则按 0~1） |
+
+如果 `sp_metric_value` 里直接存在与规则指标同名的指标码，优先用它。没有指标值的学生不参与判定（不会生成预警），这样 M1/M2 还没跑数据时不会误报。
+
+### 6.3 权限与数据范围
+
+| 权限 | 用途 |
+| --- | --- |
+| `alert.read` | 看板、规则列表、预警列表、干预记录、学业趋势 |
+| `alert.write` | 生成预警、认领、处置；配置规则额外要求全校范围 |
+
+- 辅导员（`scope=class`）：只看/只能处置本班学生。
+- 院系管理员（`scope=college`）：本学院。
+- 数据管理员 / 系统管理员（`scope=all`）：全校，并且只有他们能改全局规则。
+- 其他角色（如学生）没有 `alert.*`，访问返回 403。
 
 ---
 
@@ -203,9 +233,10 @@ GET /api/modules/academic-alerts/students/2021007/trend
 
 ```bash
 ctest --test-dir build --output-on-failure
-# 100% tests passed, 0 tests failed out of 2
+# 当前全量测试 11 个，全部通过
 ```
 
+- `academic_alerts_tests`：真实库下的看板、规则、生成幂等、认领/处置、干预记录、趋势、跨应用持久化，以及辅导员本班/院系管理员/数据管理员的数据范围与 403
 - `platform_tests`：应用层路由注册、匹配、404 行为
 - `http_smoke`：真实 HTTP 边界（健康检查、模块目录、静态页、请求体超限）
 
@@ -233,11 +264,11 @@ ctest --test-dir build --output-on-failure
 
 | 项 | 现状 | 后续 |
 | --- | --- | --- |
-| 数据存储 | 内存静态变量，重启丢失 | 接 MySQL 或其他持久化 |
-| 指标来源 | 种子数据直接给出综合成绩等 | 从 M2 的指标值表读取，阈值改为读指标口径配置 |
-| 权限 | 认领只做「先到先得」 | 接 M6 的角色与数据范围校验（辅导员只能处置所辖班级） |
+| 数据存储 | 已落 `aa_alert_rule` / `aa_alert_record` / `aa_intervention`（MySQL） | 已完成 |
+| 指标来源 | 只读 `sp_student` / `sp_metric_value`，按绑定表换算 | 已完成；指标口径维护在 M2 |
+| 权限 | `alert.read` / `alert.write`，辅导员本班、院系本学院、管理员全校 | 已完成 |
 | 通知 | 仅记录 `notify` 字段 | 接消息推送（站内信/邮件） |
-| 并发 | 单线程服务 | 平台本身单线程，多实例部署时需加锁或落库 |
+| 并发 | 单线程服务；状态更新未加行锁 | 多实例部署时用 `SELECT ... FOR UPDATE` 或唯一约束保证认领原子性 |
 
 ---
 

@@ -15,6 +15,7 @@ public:
 Json validate_job(const Json& input);
 Json validate_strategy(const Json& input);
 std::string validate_status(const Json& input);
+void ensure_catalog_schema(Database& db);
 
 class Catalog {
 public:

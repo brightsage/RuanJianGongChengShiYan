@@ -1,5 +1,5 @@
+#include "platform/db.hpp"
 #include "platform/security.hpp"
-#include <sqlite3.h>
 #include <iostream>
 
 using namespace platform;
@@ -43,23 +43,22 @@ int main() {
     catch (const security::ApiError& e) { denied = e.status == 403; }
     check(denied, "must reject another student's scope");
     security::AuditEvent event{"test.write", "test", "record"};
-    app.security()->audited_write(principal, event, [&](sqlite3* db) {
-        check(sqlite3_exec(db, "CREATE TABLE test_business(value TEXT)", nullptr, nullptr, nullptr) == SQLITE_OK, "create business table");
+    app.security()->audited_write(principal, event, [&](Database& db) {
+        db.exec("CREATE TABLE IF NOT EXISTS test_business(value TEXT)");
     });
     auto invalid = event; invalid.action.clear();
     bool rolled_back = false;
-    try { app.security()->audited_write(principal, invalid, [&](sqlite3* db) {
-        sqlite3_exec(db, "INSERT INTO test_business VALUES('must rollback')", nullptr, nullptr, nullptr);
+    try { app.security()->audited_write(principal, invalid, [&](Database& db) {
+        db.exec("INSERT INTO test_business VALUES('must rollback')");
     }); } catch (const std::invalid_argument&) { rolled_back = true; }
     check(rolled_back, "audit failure must abort");
-    app.security()->audited_write(principal, event, [&](sqlite3* db) {
-        sqlite3_stmt* row = nullptr; sqlite3_prepare_v2(db, "SELECT count(*) FROM test_business", -1, &row, nullptr);
-        sqlite3_step(row); const int count = sqlite3_column_int(row, 0); sqlite3_finalize(row);
-        check(count == 0, "business mutation must roll back with audit");
+    app.security()->audited_write(principal, event, [&](Database& db) {
+        const auto rows = db.query("SELECT count(*) AS count FROM test_business");
+        check(rows.at(0).get_int64("count") == 0, "business mutation must roll back with audit");
     });
     bool business_failure = false;
-    try { app.security()->audited_write(principal, event, [&](sqlite3* db) {
-        sqlite3_exec(db, "INSERT INTO test_business VALUES('temporary')", nullptr, nullptr, nullptr);
+    try { app.security()->audited_write(principal, event, [&](Database& db) {
+        db.exec("INSERT INTO test_business VALUES('temporary')");
         throw std::runtime_error("business failure");
     }); } catch (const std::runtime_error&) { business_failure = true; }
     check(business_failure, "business failure must propagate");

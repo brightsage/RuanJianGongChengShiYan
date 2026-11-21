@@ -1,9 +1,11 @@
 # 运行数据目录
 
-服务启动后默认在这里生成 `platform.db`（SQLite）。数据库文件、WAL 和 SHM 文件已在 `.gitignore` 中忽略，不要提交。
+项目已经切换到 MySQL，不再在这里生成 `platform.db`。该目录只保留为旧版本兼容占位，数据库文件不会提交。
 
-可用环境变量 `PLATFORM_DB_PATH` 指定其他位置，例如：
+默认连接：
 
-```powershell
-$env:PLATFORM_DB_PATH = "D:\tmp\platform.db"
+```text
+mysql://platform:PlatformPass123!@127.0.0.1:3307/student_platform
 ```
+
+可用 `PLATFORM_DB_URL` 或 `PLATFORM_DB_HOST/PORT/USER/PASSWORD/NAME` 覆盖。测试使用 `PLATFORM_TEST_DB=1` 自动创建 `_test_<pid>_<timestamp>` 独立数据库（每个测试进程一个库）。

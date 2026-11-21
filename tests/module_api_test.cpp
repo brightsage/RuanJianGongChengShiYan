@@ -11,6 +11,8 @@
 
 namespace {
 
+std::string admin_token;
+
 void require(bool condition, const std::string& message = "assertion failed") {
     if (!condition) throw std::runtime_error(message);
 }
@@ -39,13 +41,15 @@ void remove_database_files(const std::string& path) {
 
 platform::Response call(platform::App& app, const std::string& method,
                         const std::string& path, const std::string& body = {},
-                        const std::string& query = {}) {
+                        const std::string& query = {}, const std::string& token = {}) {
     platform::Request request;
     request.method = method;
     request.path = path;
     request.body = body;
     request.query = query;
     if (!body.empty()) request.headers["content-type"] = "application/json";
+    const std::string& credential = token.empty() ? admin_token : token;
+    if (!credential.empty()) request.headers["authorization"] = "Bearer " + credential;
     return app.handle(request);
 }
 
@@ -65,13 +69,21 @@ std::int64_t find_module_route_count(const platform::Json& catalog, const std::s
 }  // namespace
 
 int main() {
+    using platform::Json;
     const std::string path = make_temp_db_path();
     set_database_path(path);
     try {
         {
-            auto app = platform::make_app();
+            platform::AppOptions options;
+            options.bootstrap_password = "test-admin-password";
+            auto app = platform::make_app(options);
 
-            auto response = call(app, "GET", "/api/modules");
+            auto response = call(app, "POST", "/api/modules/data-services/login",
+                                 R"({"username":"admin","password":"test-admin-password"})");
+            require(response.status == 200, "admin login");
+            admin_token = body_of(response).at("access_token").as_string();
+
+            response = call(app, "GET", "/api/modules");
             require(response.status == 200, "module catalog status");
             const auto catalog = body_of(response);
             require(find_module_route_count(catalog, "data-ingestion") > 0,
@@ -182,11 +194,11 @@ int main() {
 
             response = call(app, "POST", "/api/modules/student-profile/students",
                             R"({"student_id":"2023001","name":"张三","major":"软件工程",
-                                "class_name":"软件2301","grade":2023})");
+                                "class_name":"软件2301","grade":2023,"org_id":"college-a"})");
             require(response.status == 201, "sync student 1");
             response = call(app, "POST", "/api/modules/student-profile/students",
                             R"({"student_id":"2023002","name":"李四","major":"软件工程",
-                                "class_name":"软件2301","grade":2023})");
+                                "class_name":"软件2301","grade":2023,"org_id":"college-a"})");
             require(response.status == 201, "sync student 2");
 
             response = call(app, "POST", "/api/modules/student-profile/metrics",
@@ -271,6 +283,73 @@ int main() {
             require(response.content_type.find("text/html") != std::string::npos,
                     "report content type");
             require(response.body.find("张三") != std::string::npos, "report body");
+
+            const auto create_user = [&](const std::string& username, const std::string& role,
+                                         const std::string& org, const std::string& cls,
+                                         const std::string& student_no) {
+                Json input = Json::object();
+                input["username"] = username;
+                input["password"] = "test-user-password";
+                input["role"] = role;
+                input["org_id"] = org;
+                if (!cls.empty()) input["class_id"] = cls;
+                if (!student_no.empty()) input["student_no"] = student_no;
+                const auto created = call(app, "POST", "/api/modules/data-services/users",
+                                          input.dump());
+                require(created.status == 201, "create scoped user " + username);
+            };
+            const auto login_as = [&](const std::string& username) {
+                Json input = Json::object();
+                input["username"] = username;
+                input["password"] = "test-user-password";
+                const auto logged = call(app, "POST", "/api/modules/data-services/login",
+                                         input.dump(), {}, "");
+                require(logged.status == 200, "login " + username);
+                return body_of(logged).at("access_token").as_string();
+            };
+
+            create_user("student1", "student", "college-a", "软件2301", "2023001");
+            create_user("student2", "student", "college-a", "软件2301", "2023002");
+            create_user("counselor", "counselor", "college-a", "软件2301", "");
+            create_user("college-a", "college_admin", "college-a", "", "");
+            create_user("college-b", "college_admin", "college-b", "", "");
+            const auto student1_token = login_as("student1");
+            const auto counselor_token = login_as("counselor");
+            const auto college_a_token = login_as("college-a");
+            const auto college_b_token = login_as("college-b");
+
+            response = call(app, "GET", "/api/modules/student-profile/students/2023001",
+                            {}, {}, student1_token);
+            require(response.status == 200, "student can read own profile");
+            response = call(app, "GET", "/api/modules/student-profile/students/2023002",
+                            {}, {}, student1_token);
+            require(response.status == 403, "student cannot read another profile");
+            response = call(app, "GET", "/api/modules/student-profile/students",
+                            {}, {}, student1_token);
+            require(response.status == 200 &&
+                        body_of(response).as_array().size() == 1,
+                    "student list must be scoped to self");
+            response = call(app, "GET", "/api/modules/student-profile/students",
+                            {}, {}, counselor_token);
+            require(response.status == 200 &&
+                        body_of(response).as_array().size() == 2,
+                    "counselor list must be scoped to class");
+            response = call(app, "GET", "/api/modules/student-profile/students/2023002",
+                            {}, {}, counselor_token);
+            require(response.status == 200, "counselor can read class profile");
+            response = call(app, "GET", "/api/modules/student-profile/students/2023001",
+                            {}, {}, college_a_token);
+            require(response.status == 200, "college admin can read own college");
+            response = call(app, "GET", "/api/modules/student-profile/students/2023001",
+                            {}, {}, college_b_token);
+            require(response.status == 403, "college admin cannot read another college");
+            response = call(app, "GET", "/api/modules/data-ingestion/sources",
+                            {}, {}, student1_token);
+            require(response.status == 403, "student must not access ingestion data");
+            response = call(app, "POST", "/api/modules/student-profile/recalculate",
+                            R"({"student_id":"2023001","term":"2026-秋"})", {},
+                            student1_token);
+            require(response.status == 403, "student must not recalculate profiles");
 
             response = call(app, "POST", "/api/modules/student-profile/metrics",
                             R"({"student_id":"2023001","metric_code":"comprehensive_score",

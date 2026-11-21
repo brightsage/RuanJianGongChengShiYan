@@ -3,6 +3,7 @@
 #include "catalog.hpp"
 #include "outcomes.hpp"
 #include "recommendations.hpp"
+#include "platform/db.hpp"
 #include "platform/security.hpp"
 
 #include <charconv>
@@ -14,7 +15,13 @@ namespace platform {
 namespace {
 
 constexpr char module_id[] = "career-recommendation";
-constexpr char demo_database[] = "data/career-demo.db";
+
+std::string demo_database_url() {
+    const char* configured = std::getenv("PLATFORM_CAREER_DEMO_DB");
+    return platform::database_url_for(configured != nullptr && *configured != '\0'
+                                          ? configured
+                                          : "student_platform_career_demo");
+}
 
 Response json_response(int status, const Json& body) {
     return {status, "application/json; charset=utf-8", body.dump(),
@@ -47,14 +54,6 @@ bool is_demo_request(const Request& request) {
     return hostname == "127.0.0.1" || hostname == "localhost";
 }
 
-bool demo_database_is_separate() {
-    namespace fs = std::filesystem;
-    const fs::path platform_db = default_database_path();
-    if (fs::weakly_canonical(demo_database) == fs::weakly_canonical(platform_db)) return false;
-    return !fs::exists(demo_database) || !fs::exists(platform_db) ||
-           !fs::equivalent(demo_database, platform_db);
-}
-
 void record_changes(security::AuditEvent& event, const Json& before, const Json& after) {
     event.before = Json::object();
     event.after = Json::object();
@@ -74,6 +73,16 @@ void register_career_recommendation(App& app) {
     const bool demo_enabled = demo_env != nullptr && std::string_view(demo_env) == "1";
 
     const auto access = app.security();
+    if (demo_enabled) {
+        Database db(demo_database_url());
+        career::ensure_catalog_schema(db);
+        career::ensure_recommendation_schema(db);
+    } else if (access) {
+        access->with_connection([](Database& db) {
+            career::ensure_catalog_schema(db);
+            career::ensure_recommendation_schema(db);
+        });
+    }
     app.add_module_route(module_id, "GET", "/mode", [demo_enabled](const Request&) {
         return json_response(200, Json::Object{{"demo", demo_enabled}});
     });
@@ -84,17 +93,16 @@ void register_career_recommendation(App& app) {
                 try {
                     security::AuditEvent event(action, resource, "new");
                     if (demo_enabled) {
-                        if (!is_demo_request(request) || !demo_database_is_separate()) {
-                            return error_response(503, "职业推荐演示未启用或数据库未隔离");
+                        if (!is_demo_request(request)) {
+                            return error_response(503, "职业推荐演示未启用");
                         }
-                        Database db(demo_database);
+                        Database db(demo_database_url());
                         return handle(db, request, event, demo_enabled);
                     }
                     if (!access) return error_response(503, "统一权限服务不可用");
                     const auto actor = access->authorize(request, permission, security::Scope{});
                     Response response;
-                    const auto operation = [&](sqlite3* connection) {
-                        Database db(*connection);
+                    const auto operation = [&](Database& db) {
                         response = handle(db, request, event, demo_enabled);
                     };
                     if (*action) access->audited_write(actor, event, operation);
@@ -191,8 +199,8 @@ void register_career_recommendation(App& app) {
                         }
                     };
                     if (demo_enabled) {
-                        if (!is_demo_request(request) || !demo_database_is_separate()) {
-                            return error_response(503, "职业推荐演示未启用或数据库未隔离");
+                        if (!is_demo_request(request)) {
+                            return error_response(503, "职业推荐演示未启用");
                         }
                         const auto student = request.headers.find("x-career-demo-student");
                         if (student == request.headers.end() ||
@@ -200,7 +208,7 @@ void register_career_recommendation(App& app) {
                             return error_response(400, "请选择演示学生");
                         }
                         student_no = student->second;
-                        Database db(demo_database);
+                        Database db(demo_database_url());
                         return run(db);
                     }
                     if (!access) return error_response(503, "统一权限服务不可用");
@@ -210,8 +218,7 @@ void register_career_recommendation(App& app) {
                     }
                     student_no = actor.student_no;
                     Response response;
-                    access->with_connection([&](sqlite3* connection) {
-                        Database db(*connection);
+                    access->with_connection([&](Database& db) {
                         response = run(db);
                     });
                     return response;

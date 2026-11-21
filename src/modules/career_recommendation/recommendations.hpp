@@ -13,6 +13,7 @@ struct RecommendationFilter {
 
 RecommendationFilter validate_filter(const Json& input);
 Json validate_feedback(const Json& input);
+void ensure_recommendation_schema(Database& db);
 
 class Recommendations {
 public:

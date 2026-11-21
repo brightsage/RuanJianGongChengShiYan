@@ -1,4 +1,4 @@
-#include "store.hpp"
+﻿#include "store.hpp"
 #include "platform/crypto.hpp"
 
 #include <algorithm>
@@ -60,7 +60,7 @@ void Security::register_permission(const std::string& code, const std::string& n
     if (code.empty() || code.size() > 100 || code.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_.-") != std::string::npos ||
         name.empty() || name.size() > 200) throw std::invalid_argument("invalid permission metadata");
     std::lock_guard<std::recursive_mutex> lock(store_->mutex);
-    Statement(store_->db, "INSERT INTO permission_catalog VALUES(?,?) ON CONFLICT(code) DO UPDATE SET name=excluded.name")
+    Statement(store_->db, "INSERT INTO permission_catalog VALUES(?,?) ON DUPLICATE KEY UPDATE name=VALUES(name)")
         .bind(1, code).bind(2, name).step();
 }
 Principal Security::authorize(const Request& request, const std::string& permission, const Scope& resource) const {
@@ -83,12 +83,12 @@ Principal Security::authorize(const Request& request, const std::string& permiss
     }
     return p;
 }
-void Security::with_connection(const std::function<void(sqlite3*)>& operation) const {
+void Security::with_connection(const std::function<void(Database&)>& operation) const {
     std::lock_guard<std::recursive_mutex> lock(store_->mutex);
     operation(store_->db);
 }
 
-void Security::audited_write(const Principal& actor, AuditEvent& event, const std::function<void(sqlite3*)>& write) const {
+void Security::audited_write(const Principal& actor, AuditEvent& event, const std::function<void(Database&)>& write) const {
     if (actor.user_id.empty() || event.action.empty() || event.resource_type.empty() || event.resource_id.empty() || event.outcome != "success")
         throw std::invalid_argument("incomplete successful write audit event");
     std::lock_guard<std::recursive_mutex> lock(store_->mutex);
@@ -173,7 +173,7 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
     add("POST", "/logout", [sec, store](const Request& request) {
         const auto p = sec->authenticate(request);
         AuditEvent event{"logout", "identity", p.user_id};
-        sec->audited_write(p, event, [&](sqlite3* db) {
+        sec->audited_write(p, event, [&](Database& db) {
             Statement(db, "DELETE FROM sessions WHERE token_hash=?").bind(1, digest(request.headers.at("authorization").substr(7))).step();
         });
         return json(200, Json::object());
@@ -202,7 +202,7 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
         const auto id = random_token("u_"), salt = random_token("");
         const auto hashed = password_hash(password, salt);
         AuditEvent event{"user.create", "user", id}; event.after = input;
-        sec->audited_write(p, event, [&](sqlite3* db) {
+        sec->audited_write(p, event, [&](Database& db) {
             Statement(db, "INSERT INTO users VALUES(?,?,?,?,?,?,?,?,1)").bind(1, id).bind(2, username).bind(3, hashed)
                 .bind(4, salt).bind(5, role).bind(6, org).bind(7, cls).bind(8, student).step();
         });
@@ -232,7 +232,7 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
             salt = random_token(""); hash = password_hash(password, salt);
         }
         AuditEvent event{"user.update", "user", id}; event.before = before; event.after = input;
-        sec->audited_write(p, event, [&](sqlite3* db) {
+        sec->audited_write(p, event, [&](Database& db) {
             Statement(db, "UPDATE users SET role=?,org_id=?,class_id=?,student_no=?,active=? WHERE id=?")
                 .bind(1, role).bind(2, org).bind(3, cls).bind(4, student).bind(5, active ? 1 : 0).bind(6, id).step();
             if (!salt.empty()) Statement(db, "UPDATE users SET password_hash=?,salt=? WHERE id=?").bind(1, hash).bind(2, salt).bind(3, id).step();
@@ -271,8 +271,8 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
             event.before = Json::object(); event.before["name"] = Json(old.text(0));
             event.before["scope_type"] = Json(old.text(1)); event.before["permissions"] = Json::parse(old.text(2));
         }
-        sec->audited_write(p, event, [&](sqlite3* db) {
-            Statement(db, "INSERT INTO roles VALUES(?,?,?,?) ON CONFLICT(code) DO UPDATE SET name=excluded.name,scope_type=excluded.scope_type,permissions=excluded.permissions")
+        sec->audited_write(p, event, [&](Database& db) {
+            Statement(db, "INSERT INTO roles VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),scope_type=VALUES(scope_type),permissions=VALUES(permissions)")
                 .bind(1, code).bind(2, name).bind(3, type).bind(4, strings(codes).dump()).step();
         });
         return json(200, input);
@@ -306,3 +306,6 @@ void install_identity_routes(App& app, const std::shared_ptr<security::Security>
     });
 }
 }  // namespace platform::data_services
+
+
+

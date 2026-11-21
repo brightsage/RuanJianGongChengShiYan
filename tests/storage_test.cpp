@@ -3,31 +3,14 @@
 #include "platform/db.hpp"
 #include "platform/json.hpp"
 
-#include <chrono>
-#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
-#include <system_error>
 
 namespace {
 
 void require(bool condition, const std::string& message = "assertion failed") {
     if (!condition) throw std::runtime_error(message);
-}
-
-std::string make_temp_db_path() {
-    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-    return (std::filesystem::temp_directory_path() /
-            ("student_platform_test_" + std::to_string(stamp) + ".db"))
-        .string();
-}
-
-void remove_database_files(const std::string& path) {
-    std::error_code error;
-    std::filesystem::remove(path, error);
-    std::filesystem::remove(path + "-wal", error);
-    std::filesystem::remove(path + "-shm", error);
 }
 
 void test_json() {
@@ -228,27 +211,22 @@ void test_profile_repository(platform::Database& database) {
             "snapshot term filter");
 }
 
-void test_storage(const std::string& path) {
-    {
-        platform::Database database(path);
-        test_ingestion_repository(database);
-        test_profile_repository(database);
-    }
+void test_storage() {
+    platform::Database database(":memory:");
+    test_ingestion_repository(database);
+    test_profile_repository(database);
 }
 
 }  // namespace
 
 int main() {
-    const std::string path = make_temp_db_path();
     try {
         test_json();
-        test_storage(path);
+        test_storage();
     } catch (const std::exception& error) {
-        remove_database_files(path);
         std::cerr << "storage tests failed: " << error.what() << '\n';
         return 1;
     }
-    remove_database_files(path);
     std::cout << "storage tests passed\n";
     return 0;
 }

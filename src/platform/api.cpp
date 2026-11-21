@@ -1,4 +1,5 @@
 #include "platform/api.hpp"
+#include "platform/security.hpp"
 
 #include <cctype>
 #include <cerrno>
@@ -104,6 +105,8 @@ Response guard(const std::function<Response()>& handler) {
         return json_error(400, std::string("invalid JSON: ") + error.what());
     } catch (const DbError& error) {
         return json_error(500, std::string("database error: ") + error.what());
+    } catch (const security::ApiError& error) {
+        return security::api_error(error.status, error.code, error.what());
     } catch (const std::exception& error) {
         return json_error(500, error.what());
     }

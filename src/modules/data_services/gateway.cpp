@@ -1,4 +1,4 @@
-#include "store.hpp"
+﻿#include "store.hpp"
 #include "platform/crypto.hpp"
 
 #include <algorithm>
@@ -121,7 +121,7 @@ Response Gateway::invoke(const Request& request) {
         ensure(records.is_array(), 502, "invalid_provider_response", "data provider must return an array");
         std::map<std::string, std::string> rules;
         Statement rule(store->db, "SELECT field,algorithm FROM masking_rules"); while (rule.step()) rules.emplace(rule.text(0), rule.text(1));
-        Statement mask_key(store->db, "SELECT value FROM settings WHERE key='mask_key'"); mask_key.step();
+        Statement mask_key(store->db, "SELECT value FROM settings WHERE setting_key='mask_key'"); mask_key.step();
         auto output = Json::array();
         for (std::size_t i = 0; i < records.as_array().size(); ++i) {
             const auto row = records.at(i);
@@ -176,8 +176,8 @@ void install_gateway_routes(App& app, const std::shared_ptr<Gateway>& gateway) {
         AuditEvent event{"masking.update", "masking_rule", field}; event.after = input;
         Statement old(store->db, "SELECT algorithm FROM masking_rules WHERE field=?"); old.bind(1, field);
         if (old.step()) { event.before = Json::object(); event.before["algorithm"] = Json(old.text(0)); }
-        sec->audited_write(p, event, [&](sqlite3* db) {
-            Statement(db, "INSERT INTO masking_rules VALUES(?,?) ON CONFLICT(field) DO UPDATE SET algorithm=excluded.algorithm")
+        sec->audited_write(p, event, [&](Database& db) {
+            Statement(db, "INSERT INTO masking_rules VALUES(?,?) ON DUPLICATE KEY UPDATE algorithm=VALUES(algorithm)")
                 .bind(1, field).bind(2, algorithm).step();
         }); return json(200, Json::object());
     }));
@@ -200,3 +200,5 @@ void install_gateway_routes(App& app, const std::shared_ptr<Gateway>& gateway) {
     }));
 }
 }  // namespace platform::data_services
+
+

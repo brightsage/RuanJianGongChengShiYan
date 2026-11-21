@@ -41,10 +41,9 @@ int main() {
         R"({"algorithm":"pass_and_proximity","min_score":0,"pass_weight":60,"proximity_weight":40,"allowed_industries":[],"allowed_job_types":[]})");
     career(center, "POST", "/recommendations/query", "{}", 403);
     career(student, "POST", "/recommendations/query", "{}", 409);
-    app.security()->with_connection([](sqlite3* connection) {
-        platform::Database db(*connection);
+    app.security()->with_connection([](platform::Database& db) {
         platform::student_profile::SqliteProfileRepository profiles(db);
-        profiles.upsert_student({"1001", "样例学生", "", "", 0, ""});
+        profiles.upsert_student({"1001", "样例学生", "", "", 0, "", "college-a"});
         profiles.upsert_metric({0, "1001", "programming", "2026-2027-1", 0.8, "ratio_1", "", ""});
         profiles.upsert_metric({0, "1001", "databases", "2026-2027-1", 40, "%", "", ""});
         profiles.upsert_metric({0, "1001", "ignored", "2026-2027-1", 90, "unknown", "", ""});
@@ -63,8 +62,7 @@ int main() {
     const auto old_reason = career(student, "GET", rec_path + "/reason");
     const auto past = career(student, "POST", "/recommendations/query", R"({"term":"2025-2026-2"})");
     expect(past.at("items").at(std::size_t{0}).at("score").as_double() == 22.5, "explicit term");
-    app.security()->with_connection([](sqlite3* connection) {
-        platform::Database db(*connection);
+    app.security()->with_connection([](platform::Database& db) {
         platform::student_profile::SqliteProfileRepository profiles(db);
         profiles.upsert_metric({0, "1001", "databases", "2026-2027-1", 80, "%", "", ""});
     });

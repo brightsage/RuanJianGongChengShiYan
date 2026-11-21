@@ -6,11 +6,16 @@
 
 import http.client
 import json
+import os
 import sys
+
+ADMIN_TOKEN = None
 
 
 def request(port, method, path, body=None):
     headers = {}
+    if ADMIN_TOKEN:
+        headers["Authorization"] = "Bearer " + ADMIN_TOKEN
     if body is not None:
         body = json.dumps(body, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json; charset=utf-8"
@@ -75,7 +80,15 @@ def ensure_task(port, source_id):
 
 
 def main():
+    global ADMIN_TOKEN
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8090
+    password = os.environ.get("PLATFORM_ADMIN_PASSWORD", "AdminPassword123!")
+    ADMIN_TOKEN = request(
+        port,
+        "POST",
+        "/api/modules/data-services/login",
+        {"username": "admin", "password": password},
+    )["access_token"]
     source_id = find_source(port)
     request(
         port,
@@ -115,6 +128,7 @@ def main():
                 "major": "软件工程",
                 "class_name": "软件2301",
                 "grade": 2023,
+                "org_id": "college-a",
             },
         )
         for code, value, unit, source in (

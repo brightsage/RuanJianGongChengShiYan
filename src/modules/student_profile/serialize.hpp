@@ -16,6 +16,7 @@ inline Json to_json(const Student& student) {
     value["class_name"] = student.class_name;
     value["grade"] = student.grade;
     value["updated_at"] = student.updated_at;
+    value["org_id"] = student.org_id;
     return value;
 }
 

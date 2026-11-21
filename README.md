@@ -1,14 +1,16 @@
 # 高校学生成长与职业发展数据中台
 
-这是供六个模块并行开发的 C++ 工程骨架。当前只提供本地 HTTP 服务、模块注册、路由接口、浏览器测试台和测试；**没有实现业务模块**。需求范围见《实验一报告》。
+六个模块均已注册并提供 HTTP 接口，全部使用 MySQL 持久化。需求范围见《实验一报告》。
 
 ## 环境与运行
 
 - Windows（Winsock）、Linux 或 macOS（POSIX socket）
 - 支持 C++17 的编译器、CMake 3.21 或更新版本
 - Python 3 可选，用于 HTTP 冒烟测试
-- SQLite 3.54.1 以源码形式内置在 `third_party/sqlite/`，不需要额外安装数据库服务
-- OpenSSL 开发包，用于平台身份认证与审计
+- MySQL 8.4（客户端头文件/库 + 一个可连接的 MySQL 实例；SQLite 已从构建中移除）
+- 平台身份认证与审计使用仓库内置的 `platform/crypto.cpp`，不需要 OpenSSL
+- 默认连接 `mysql://platform:PlatformPass123!@127.0.0.1:3307/student_platform`，可用 `PLATFORM_DB_URL` 或 `PLATFORM_DB_HOST/PORT/USER/PASSWORD/NAME` 覆盖
+- 换电脑或新环境从零部署（数据库、环境变量、构建、数据迁移）见 [docs/换机部署.md](docs/换机部署.md)
 
 Linux / macOS：
 
@@ -30,9 +32,17 @@ ctest --preset windows-vs2026
 
 打开 <http://127.0.0.1:8080/>。服务只监听本机回环地址；端口参数可改，省略时为 8080。测试台列出已经注册的模块和路由，并允许填写方法、路径、请求头和请求体，查看实际 HTTP 响应。它是开发工具，不是最终产品前端。
 
-职业发展推荐提供就业指导中心和学生页面，启动方式见 [职业发展推荐模块](docs/职业发展推荐模块.md)，组内接口约定见 [职业推荐联调说明](docs/职业推荐联调说明.md)
+开发/演示页面：
+
+- `/workspace`：统一业务工作台，覆盖数据接入、数据治理、学生画像、学业预警；支持登录、分页、规则启停、主数据浏览和预警筛选/处置
+- `/career`：职业发展推荐，启动方式见 [职业发展推荐模块](docs/职业发展推荐模块.md)
+- `/data-services`：数据服务与权限管理，说明见 [数据服务与权限管理](docs/data-services.md)
+
+组内接口约定见 [职业推荐联调说明](docs/职业推荐联调说明.md)
 
 首次启动正式模式前设置至少 12 字符的 `PLATFORM_ADMIN_PASSWORD`，用于创建 `admin` 账号。权限管理与账号创建见 [数据服务与权限管理](docs/data-services.md)
+
+一条命令跑通 M1→M6 的端到端演示见 [scripts/e2e_demo.py](scripts/e2e_demo.py)：先启动服务，再执行 `py -3 scripts/e2e_demo.py 8090`。
 
 现在可用的公共接口：
 
@@ -41,7 +51,7 @@ ctest --preset windows-vs2026
 | GET | `/api/health` | 检查服务是否启动 |
 | GET | `/api/modules` | 列出六个模块及各自已注册的路由 |
 
-尚未开发的业务地址返回 404，不提供模拟成功结果。
+未注册的地址返回 404，不提供模拟成功结果。
 
 ## 模块边界
 
@@ -59,10 +69,11 @@ ctest --preset windows-vs2026
 ## 数据库与共享工具
 
 - `include/platform/json.hpp`：轻量 JSON 解析与输出，模块用它处理请求体和响应体。
-- `include/platform/db.hpp`：SQLite 薄封装，提供 `exec`、`query`、参数绑定和事务。
-- 默认数据库文件为 `data/platform.db`，可用环境变量 `PLATFORM_DB_PATH` 覆盖；数据库文件不提交。
-- 表名按模块加前缀（数据接入 `ing_`、学生画像 `sp_`），各模块在自己的仓储构造函数里执行 `CREATE TABLE IF NOT EXISTS`。
-- 数据采集与接入、学生画像两个模块的模型、仓储和表结构已经搭好，详见 [`docs/模块框架说明.md`](docs/模块框架说明.md)；业务路由尚未注册。
+- `include/platform/db.hpp`：MySQL 8.x 薄封装，提供连接、`exec`、`query`、参数绑定和事务。
+- 默认连接为 `mysql://platform:PlatformPass123!@127.0.0.1:3307/student_platform`；优先读 `PLATFORM_DB_URL`，否则读 `PLATFORM_DB_HOST/PORT/USER/PASSWORD/NAME`。`PLATFORM_TEST_DB=1` 时每个测试进程使用 `_test_<pid>_<timestamp>` 独立库，同进程内的所有模块共用一个库。
+- 表名按模块加前缀（数据接入 `ing_`、数据治理 `gov_`、学生画像 `sp_`、学业预警 `aa_`、职业推荐 `cd_`），各模块在启动/仓储初始化时执行 `CREATE TABLE IF NOT EXISTS`。
+- 六个模块均已使用 MySQL。
+- MySQL 初始化、建库和测试账号见 [`docs/模块框架说明.md`](docs/模块框架说明.md) 的数据库章节。
 
 ## 添加一个接口
 
@@ -82,4 +93,4 @@ app.add_module_route("student-profile", "GET", "/:student_id",
 
 ## 当前边界
 
-这个轻量服务只用于本地联调：单线程、每个连接只处理一个请求、请求体上限 1 MiB，不支持分块传输、TLS 或生产部署。路由采用固定路径和 `:参数名`；查询串与请求体仅保留原文，具体格式解析由模块自行决定。鉴权、持久化、业务实体和六个模块的功能都留待各模块分支实现。涉及通用接口变更时，先在主分支协商，避免六个分支分别修改核心文件。
+这个轻量服务只用于本地联调：单线程、每个连接只处理一个请求、请求体上限 1 MiB，不支持分块传输、TLS 或生产部署。路由采用固定路径和 `:参数名`；查询串与请求体仅保留原文，具体格式解析由模块自行决定。M5/M6 已经接入统一鉴权和审计，M1/M2/M3/M4 的权限接入是本轮收口任务之一；M2/M4 仍为内存实现。运行前需先启动 MySQL 8.4 并建好 `student_platform` 库与账号。涉及通用接口变更时，先在主分支协商，避免六个分支分别修改核心文件。

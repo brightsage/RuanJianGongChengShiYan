@@ -127,22 +127,24 @@ std::string validate_status(const Json& input) {
     return status;
 }
 
-Catalog::Catalog(Database& database) : db_(database) {
-    db_.exec(R"sql(
+void ensure_catalog_schema(Database& db) {
+    db.exec(R"sql(
         CREATE TABLE IF NOT EXISTS cd_jobs (
-            id INTEGER PRIMARY KEY,
-            status TEXT NOT NULL DEFAULT 'draft'
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            status VARCHAR(16) NOT NULL DEFAULT 'draft'
                 CHECK (status IN ('draft', 'published', 'withdrawn')),
-            version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
-            details TEXT NOT NULL
+            version INT NOT NULL DEFAULT 1 CHECK (version > 0),
+            details LONGTEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS cd_strategy (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
-            details TEXT NOT NULL
+            id INT PRIMARY KEY CHECK (id = 1),
+            version INT NOT NULL DEFAULT 1 CHECK (version > 0),
+            details LONGTEXT NOT NULL
         );
     )sql");
 }
+
+Catalog::Catalog(Database& database) : db_(database) {}
 
 Json Catalog::list_jobs() {
     Json::Array jobs;
@@ -159,30 +161,25 @@ Json Catalog::get_job(std::int64_t id) {
 }
 
 Json Catalog::create_job(const Json& details) {
-    const auto rows = db_.query(
-        "INSERT INTO cd_jobs (details) VALUES (?) RETURNING *", {details.dump()});
-    return read_job(rows.at(0));
+    db_.exec("INSERT INTO cd_jobs (details) VALUES (?)", {details.dump()});
+    return get_job(db_.last_insert_rowid());
 }
 
 Json Catalog::update_job(std::int64_t id, const Json& details) {
     const auto payload = details.dump();
-    const auto rows = db_.query(
-        "UPDATE cd_jobs SET version = version + (details <> ?), details = ? "
-        "WHERE id = ? RETURNING *", {payload, payload, id});
-    if (rows.empty()) throw CatalogError(404, "岗位不存在");
-    return read_job(rows.front());
+    db_.exec("UPDATE cd_jobs SET version = version + (details <> ?), details = ? WHERE id = ?",
+             {payload, payload, id});
+    return get_job(id);
 }
 
 Json Catalog::set_status(std::int64_t id, const std::string& status) {
-    const auto rows = db_.query(
+    db_.exec(
         "UPDATE cd_jobs SET version = version + (status <> ?), status = ? "
-        "WHERE id = ? AND (status <> 'draft' OR ? = 'published') RETURNING *",
+        "WHERE id = ? AND (status <> 'draft' OR ? = 'published')",
         {status, status, id, status});
-    if (!rows.empty()) return read_job(rows.front());
-    if (db_.query("SELECT id FROM cd_jobs WHERE id = ?", {id}).empty()) {
-        throw CatalogError(404, "岗位不存在");
-    }
-    throw CatalogError(409, "草稿须先发布才能下架");
+    const auto job = get_job(id);
+    if (job.at("status").as_string() != status) throw CatalogError(409, "草稿须先发布才能下架");
+    return job;
 }
 
 Json Catalog::get_strategy() {
@@ -198,11 +195,13 @@ Json Catalog::find_strategy() {
 }
 
 Json Catalog::save_strategy(const Json& details) {
-    const auto rows = db_.query(
+    const auto payload = details.dump();
+    db_.exec(
         "INSERT INTO cd_strategy (id, details) VALUES (1, ?) "
-        "ON CONFLICT(id) DO UPDATE SET version = version + (details <> excluded.details), "
-        "details = excluded.details RETURNING *", {details.dump()});
-    return read_strategy(rows.at(0));
+        "ON DUPLICATE KEY UPDATE version = version + (details <> VALUES(details)), "
+        "details = VALUES(details)",
+        {payload});
+    return read_strategy(db_.query("SELECT * FROM cd_strategy WHERE id = 1").at(0));
 }
 
 }  // namespace platform::career

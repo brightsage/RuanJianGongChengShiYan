@@ -1,6 +1,6 @@
-#include "test_support.hpp"
+﻿#include "test_support.hpp"
 #include "platform/data_services.hpp"
-#include <sqlite3.h>
+#include "platform/db.hpp"
 #include <iostream>
 
 int main() {
@@ -25,7 +25,7 @@ int main() {
     app.data_services()->register_provider("profiles", {"student_no", "phone", "score", "profile"}, [&](const platform::data_services::Query& query) {
         if (provider_failure) throw std::runtime_error("private provider error");
         observed_scope = query.scope.type == "college" && query.scope.org_id == "college-a" && query.caller.user_id == client_id;
-        return platform::Json::parse(R"([{"org_id":"college-a","class_id":"class-a","student_no":"20260001","phone":"13800000000","score":99,"profile":{"name":"测试学生名称","email":"student@example.test","password_hash":"not-allowed"},"hidden":"not-published"},{"org_id":"college-b","student_no":"outside"},{"student_no":"missing-org"}])");
+        return platform::Json::parse(R"([{"org_id":"college-a","class_id":"class-a","student_no":"20260001","phone":"13800000000","score":99,"profile":{"name":"娴嬭瘯瀛︾敓鍚嶇О","email":"student@example.test","password_hash":"not-allowed"},"hidden":"not-published"},{"org_id":"college-b","student_no":"outside"},{"student_no":"missing-org"}])");
     });
     service_client.call("POST", "/services/not-this-version/invoke", "{}", 403);
     service_client.call("POST", "/services/" + service + "/invoke", R"({"scope":{"type":"all"}})", 400);
@@ -69,15 +69,25 @@ int main() {
         throw std::runtime_error("grant missing");
     };
     const auto used_before_failure = used();
-    // An actual SQLite audit failure must roll back quota accounting and prevent data release.
+    // An actual audit failure must roll back quota accounting and prevent data release.
     platform::Request admin_request{"GET", "/", {{"authorization", "Bearer " + admin.token}}, {}, {}, {}};
     auto principal = app.security()->authenticate(admin_request);
     platform::security::AuditEvent event{"test.setup", "test", "audit-failure"};
-    app.security()->audited_write(principal, event, [](sqlite3* db) {
-        sqlite3_exec(db, "CREATE TRIGGER fail_invocation_audit BEFORE INSERT ON audit_logs WHEN NEW.action='service.invoke' BEGIN SELECT RAISE(ABORT,'injected failure'); END", nullptr, nullptr, nullptr);
+    app.security()->audited_write(principal, event, [](platform::Database& db) {
+        db.exec(R"sql(
+            CREATE TRIGGER fail_invocation_audit BEFORE INSERT ON audit_logs
+            FOR EACH ROW
+            BEGIN
+                IF NEW.action = 'service.invoke' THEN
+                    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected failure';
+                END IF;
+            END
+        )sql");
     });
     hashed.call("POST", "/services/" + service + "/invoke", "{}", 500);
-    app.security()->audited_write(principal, event, [](sqlite3* db) { sqlite3_exec(db, "DROP TRIGGER fail_invocation_audit", nullptr, nullptr, nullptr); });
+    app.security()->audited_write(principal, event, [](platform::Database& db) {
+        db.exec("DROP TRIGGER IF EXISTS fail_invocation_audit");
+    });
     expect(used() == used_before_failure, "failed audit must not consume quota");
     now += 61;
     data.call("PATCH", "/services/" + service, R"({"rate_per_minute":1})");
@@ -97,3 +107,4 @@ int main() {
     expect(logs.as_array().size() >= 10, "success and failure calls must be logged");
     std::cout << "provider, scope filtering, masking, limits, revocation and audit failure passed\n";
 }
+

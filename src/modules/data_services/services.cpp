@@ -1,4 +1,4 @@
-#include "store.hpp"
+﻿#include "store.hpp"
 #include <algorithm>
 
 namespace platform::data_services {
@@ -69,7 +69,7 @@ void install_service_routes(App& app, const std::shared_ptr<security::Security>&
         Statement duplicate(store->db, "SELECT 1 FROM services WHERE name=? AND version=?"); duplicate.bind(1, name).bind(2, version);
         ensure(!duplicate.step(), 409, "conflict", "service version already exists");
         const auto id = random_token("s_"); AuditEvent event{"service.publish", "service", id}; event.after = input;
-        sec->audited_write(p, event, [&](sqlite3* db) {
+        sec->audited_write(p, event, [&](Database& db) {
             Statement(db, "INSERT INTO services(id,name,provider_id,version,fields,scope,rate_per_minute) VALUES(?,?,?,?,?,?,?)")
                 .bind(1, id).bind(2, name).bind(3, provider).bind(4, version).bind(5, strings(fields).dump())
                 .bind(6, security::scope_json(scope).dump()).bind(7, rate).step();
@@ -90,7 +90,7 @@ void install_service_routes(App& app, const std::shared_ptr<security::Security>&
         const bool active = input.contains("active") ? input.at("active").as_bool() : row.integer(7) != 0;
         const auto rate = input.contains("rate_per_minute") ? integer(input, "rate_per_minute", 1, 10000) : row.integer(6);
         AuditEvent event{"service.update", "service", id}; event.before = before; event.after = input;
-        sec->audited_write(p, event, [&](sqlite3* db) {
+        sec->audited_write(p, event, [&](Database& db) {
             Statement(db, "UPDATE services SET active=?,rate_per_minute=? WHERE id=?").bind(1, active ? 1 : 0).bind(2, rate).bind(3, id).step();
         }); return json(200, Json::object());
     });
@@ -106,7 +106,7 @@ void install_service_routes(App& app, const std::shared_ptr<security::Security>&
         const auto validity = integer(input, "validity_seconds", 60, 31536000), quota = integer(input, "quota", 1, 1000000);
         const auto rate = integer(input, "rate_per_minute", 1, row.integer(2));
         const auto id = random_token("a_"); AuditEvent event{"grant.apply", "application", id}; event.after = input;
-        sec->audited_write(p, event, [&](sqlite3* db) {
+        sec->audited_write(p, event, [&](Database& db) {
             Statement(db, "INSERT INTO applications(id,owner_id,service_id,purpose,scope,validity_seconds,quota,rate_per_minute,created_at) VALUES(?,?,?,?,?,?,?,?,?)")
                 .bind(1, id).bind(2, p.user_id).bind(3, service).bind(4, purpose).bind(5, security::scope_json(scope).dump())
                 .bind(6, validity).bind(7, quota).bind(8, rate).bind(9, store->now()).step();
@@ -136,7 +136,7 @@ void install_service_routes(App& app, const std::shared_ptr<security::Security>&
         AuditEvent event{"grant." + decision, "application", id}; event.before = application_json(row); event.after = input;
         if (decision == "reject") {
             if (reason.empty()) throw std::invalid_argument("rejection requires reason");
-            sec->audited_write(p, event, [&](sqlite3* db) {
+            sec->audited_write(p, event, [&](Database& db) {
                 Statement(db, "UPDATE applications SET status='rejected',reason=? WHERE id=?").bind(1, reason).bind(2, id).step();
             }); return json(200, Json::object());
         }
@@ -151,7 +151,7 @@ void install_service_routes(App& app, const std::shared_ptr<security::Security>&
         const auto mask = text(input, "mask_level", 16);
         if (mask != "standard" && mask != "strict") throw std::invalid_argument("mask_level must be standard or strict");
         const auto grant_id = random_token("g_");
-        sec->audited_write(p, event, [&](sqlite3* db) {
+        sec->audited_write(p, event, [&](Database& db) {
             Statement(db, "UPDATE applications SET status='approved',reason=? WHERE id=?").bind(1, reason).bind(2, id).step();
             Statement(db, "INSERT INTO grants(id,application_id,owner_id,service_id,scope,expires_at,quota,rate_per_minute,mask_level) VALUES(?,?,?,?,?,?,?,?,?)")
                 .bind(1, grant_id).bind(2, id).bind(3, owner.user_id).bind(4, row.text(2)).bind(5, security::scope_json(scope).dump())
@@ -166,7 +166,7 @@ void install_service_routes(App& app, const std::shared_ptr<security::Security>&
         ensure(row.integer(3) > store->now() && row.integer(4) == 0 && row.integer(5) == 1, 403, "forbidden", "grant expired, revoked or service suspended");
         ensure(security::contains(p.scope, parse_scope(Json::parse(row.text(2)))), 403, "forbidden", "account scope no longer covers grant");
         const auto token = random_token("svc_"); AuditEvent event{"grant.token.rotate", "grant", row.text(0)};
-        sec->audited_write(p, event, [&](sqlite3* db) {
+        sec->audited_write(p, event, [&](Database& db) {
             Statement(db, "UPDATE grants SET token_hash=? WHERE id=?").bind(1, digest(token)).bind(2, row.text(0)).step();
         }); auto out = Json::object(); out["access_token"] = Json(token); out["token_type"] = Json("Bearer");
         out["expires_at"] = Json(row.integer(3)); auto response = json(200, out); response.headers["Cache-Control"] = "no-store"; return response;
@@ -179,10 +179,11 @@ void install_service_routes(App& app, const std::shared_ptr<security::Security>&
             (sec->permitted(p, "grants.approve") && security::contains(p.scope, parse_scope(Json::parse(row.text(2))))),
             403, "forbidden", "revocation denied");
         AuditEvent event{"grant.revoke", "grant", row.text(0)};
-        sec->audited_write(p, event, [&](sqlite3* db) {
+        sec->audited_write(p, event, [&](Database& db) {
             Statement(db, "UPDATE grants SET revoked=1,token_hash='' WHERE id=?").bind(1, row.text(0)).step();
             Statement(db, "UPDATE applications SET status='revoked' WHERE id=?").bind(1, id).step();
         }); return json(200, Json::object());
     });
 }
 }  // namespace platform::data_services
+

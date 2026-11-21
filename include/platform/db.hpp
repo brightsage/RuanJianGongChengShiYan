@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mysql.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -7,8 +9,6 @@
 #include <string>
 #include <variant>
 #include <vector>
-
-struct sqlite3;
 
 namespace platform {
 
@@ -23,9 +23,11 @@ class DbRow {
 public:
     DbRow() = default;
     explicit DbRow(std::map<std::string, DbValue> values);
+    DbRow(std::map<std::string, DbValue> values, std::vector<std::string> columns);
 
     bool has(const std::string& column) const;
     const DbValue& at(const std::string& column) const;
+    const DbValue& at(std::size_t index) const;
     std::string get_string(const std::string& column, const std::string& fallback = {}) const;
     std::int64_t get_int64(const std::string& column, std::int64_t fallback = 0) const;
     double get_double(const std::string& column, double fallback = 0.0) const;
@@ -33,15 +35,17 @@ public:
 
 private:
     std::map<std::string, DbValue> values_;
+    std::vector<std::string> columns_;
 };
 
 using DbRows = std::vector<DbRow>;
 
-// 对 SQLite 的薄封装：模块只关心 SQL 和参数，不需要直接处理 sqlite3_stmt。
+// MySQL 8.x 薄封装：模块只关心 SQL 和参数，不直接处理 MYSQL_STMT。
+// 连接串格式：mysql://user:password@host:port/database
 class Database {
 public:
-    explicit Database(const std::string& path);
-    explicit Database(sqlite3& connection);
+    explicit Database(const std::string& url);
+    explicit Database(MYSQL& connection);
     ~Database();
 
     Database(const Database&) = delete;
@@ -58,14 +62,23 @@ public:
     void commit();
     void rollback();
 
-    sqlite3* handle() { return db_; }
+    MYSQL* handle() { return db_; }
+    const std::string& database_name() const { return database_name_; }
 
 private:
-    sqlite3* db_ = nullptr;
+    std::string bind_sql(const std::string& sql, const std::vector<DbValue>& params) const;
+
+    MYSQL* db_ = nullptr;
     bool owns_connection_ = true;
+    std::string database_name_;
 };
 
-// 默认数据库路径为 data/platform.db，可用环境变量 PLATFORM_DB_PATH 覆盖。
+// 默认连接串。PLATFORM_DB_URL 优先；否则由 PLATFORM_DB_HOST/PORT/USER/PASSWORD/NAME 组装。
+// PLATFORM_TEST_DB=1 时数据库名追加 _test_<pid>，让每个测试进程使用独立库。
+std::string default_database_url();
+std::string database_url_for(const std::string& database_name);
+
+// 兼容旧调用名，返回连接串而不是文件路径。
 std::string default_database_path();
 
 }  // namespace platform

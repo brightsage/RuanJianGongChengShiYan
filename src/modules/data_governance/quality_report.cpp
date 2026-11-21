@@ -1,18 +1,13 @@
 #include "data_governance/quality_report.h"
-#include "data_governance/types.h"
-#include "data_governance/response_utils.h"
+
+#include "modules/data_governance/service.hpp"
+#include "platform/api.hpp"
 
 namespace data_governance {
 
-platform::Response handle_get_quality_report(const platform::Request& req) {
-    json data;
-    data["total_records"] = mock_quality_report.total_records;
-    data["cleaned_records"] = mock_quality_report.cleaned_records;
-    data["dirty_records"] = mock_quality_report.dirty_records;
-    data["quality_score"] = mock_quality_report.quality_score;
-    data["main_data_coverage"] = mock_quality_report.main_data_coverage;
-    data["last_clean_time"] = mock_quality_report.last_clean_time;
-    return success_response(data);
+platform::Response handle_get_quality_report(
+    const std::shared_ptr<GovernanceService>& service, const platform::Request&) {
+    return platform::guard([&] { return platform::json_ok(service->quality_report()); });
 }
 
-} // namespace data_governance
+}  // namespace data_governance

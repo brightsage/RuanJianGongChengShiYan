@@ -110,6 +110,7 @@ Student ProfileService::sync_student(const Json& body) {
     student.major = optional_string(body, "major");
     student.class_name = optional_string(body, "class_name");
     student.grade = static_cast<int>(optional_int64(body, "grade", 0));
+    student.org_id = optional_string(body, "org_id");
     repository_->upsert_student(student);
     return get_student(student.student_id);
 }

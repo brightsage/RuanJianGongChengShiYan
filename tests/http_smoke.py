@@ -5,7 +5,6 @@ import json
 import os
 from pathlib import Path
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -24,12 +23,17 @@ def request(port, method, path, body=None, headers=None):
 
 
 @contextmanager
-def server(directory, demo=False, database="platform.db"):
+def server(directory, demo=False, demo_db=None, database_name=None):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     environment = dict(os.environ, PLATFORM_CAREER_DEMO="1" if demo else "0",
-                       PLATFORM_DB_PATH=database, PLATFORM_ADMIN_PASSWORD="http-admin-password")
+                       PLATFORM_TEST_DB="1", PLATFORM_ADMIN_PASSWORD="http-admin-password")
+    if database_name:
+        environment["PLATFORM_TEST_DB"] = "0"
+        environment["PLATFORM_DB_NAME"] = database_name
+    if demo_db:
+        environment["PLATFORM_CAREER_DEMO_DB"] = demo_db
     process = subprocess.Popen(
         [str(Path(sys.argv[1]).resolve()), str(port)], cwd=directory, env=environment,
         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -75,6 +79,10 @@ def platform_smoke(directory):
         } <= {(route["method"], route["path"]) for route in career["routes"]}
         status, body = request(port, "GET", "/")
         assert status == 200 and "接口测试台" in body and 'href="/career"' in body
+        status, body = request(port, "GET", "/workspace")
+        assert status == 200 and "统一业务工作台" in body
+        status, body = request(port, "GET", "/workspace.js")
+        assert status == 200 and "loadOverview" in body
         status, body = request(port, "GET", "/career")
         assert status == 200 and "就业指导中心" in body
         status, _ = request(port, "GET", "/career.js")
@@ -93,6 +101,19 @@ def platform_smoke(directory):
             assert b"HTTP/1.1 413" in sock.recv(512)
 
 
+def mysql_exec(database, sql):
+    client = os.environ.get("MYSQL_CLIENT", "mysql")
+    environment = dict(os.environ, MYSQL_PWD=os.environ.get("PLATFORM_DB_PASSWORD", "PlatformPass123!"))
+    result = subprocess.run(
+        [client, "--protocol=tcp", "--default-character-set=utf8mb4",
+         f"--host={os.environ.get('PLATFORM_DB_HOST', '127.0.0.1')}",
+         f"--port={os.environ.get('PLATFORM_DB_PORT', '3307')}",
+         f"--user={os.environ.get('PLATFORM_DB_USER', 'platform')}",
+         database],
+        input=sql, env=environment, capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stderr
+
+
 def career_api(port, method, path, data=None, expected=200):
     body = json.dumps(data) if data is not None else None
     status, response = request(port, method, PREFIX + path, body, DEMO)
@@ -101,20 +122,11 @@ def career_api(port, method, path, data=None, expected=200):
 
 
 def career_smoke(directory):
-    demo_db = Path(directory, "data", "career-demo.db")
-    if demo_db.exists():
-        demo_db.unlink()
-    with server(directory, demo=True, database="data/career-demo.db") as port:
-        career_api(port, "GET", "/jobs", expected=503)
-    if demo_db.exists():
-        demo_db.unlink()
-
-    with server(directory, demo=True) as port:
+    demo_db = f"career_smoke_{os.getpid()}_{int(time.time() * 1000)}"
+    with server(directory, demo=True, demo_db=demo_db) as port:
         assert request(port, "GET", PREFIX + "/jobs")[0] == 503
         assert request(port, "GET", PREFIX + "/jobs",
                        headers=dict(DEMO, Host="example.test"))[0] == 503
-        if demo_db.exists():
-            demo_db.unlink()
         assert career_api(port, "GET", "/jobs") == []
         career_api(port, "GET", "/strategy", expected=409)
         assert request(port, "POST", PREFIX + "/jobs", "{", DEMO)[0] == 400
@@ -171,13 +183,14 @@ def career_smoke(directory):
             strategy, algorithm="weighted_pass", pass_weight=100, proximity_weight=0))
         assert active["algorithm"] == "weighted_pass" and active["version"] == 2
 
-    with server(directory, demo=True) as port:
+    with server(directory, demo=True, demo_db=demo_db) as port:
         assert career_api(port, "GET", "/jobs") == [campus, republished]
         assert career_api(port, "GET", "/strategy") == active
-    assert demo_db.is_file()
 
 
 def recommendation_smoke(directory):
+    demo_db = f"recommendation_smoke_{os.getpid()}_{int(time.time() * 1000)}"
+
     def student(port, method, path, data=None, person="demo-1", expected=200):
         headers = dict(DEMO, **{"X-Career-Demo-Student": person})
         status, body = request(port, method, PREFIX + "/recommendations" + path,
@@ -185,7 +198,7 @@ def recommendation_smoke(directory):
         assert status == expected, (method, path, status, body)
         return json.loads(body)
 
-    with server(directory, demo=True) as port:
+    with server(directory, demo=True, demo_db=demo_db) as port:
         assert career_api(port, "GET", "/mode") == {"demo": True}
         student(port, "POST", "/query", {}, expected=409)
         job = {
@@ -205,7 +218,7 @@ def recommendation_smoke(directory):
         job_id = create("后端实习")
         tied_id = create("数据实习")
         create("校招", job_type="campus")
-        create("其他行业", industry="制造")
+        create("其他行业", industry="制造业")
         create("草稿", published=False)
         career_api(port, "PUT", "/strategy", {
             "algorithm": "pass_and_proximity", "min_score": 70, "pass_weight": 60,
@@ -217,7 +230,7 @@ def recommendation_smoke(directory):
         assert [row["score"] for row in rows] == [80, 80]
         assert student(port, "POST", "/query", {"min_score": 80})["items"] == rows
         assert student(port, "POST", "/query", {"min_score": 80.01})["items"] == []
-        assert student(port, "POST", "/query", {"industry": "制造"})["items"] == []
+        assert student(port, "POST", "/query", {"industry": "制造业"})["items"] == []
         assert student(port, "POST", "/query", {"term": "missing"}, expected=409)
         assert student(port, "POST", "/query", {"student_no": "demo-2"}, expected=400)
         rec = f"/{rows[0]['id']}"
@@ -241,12 +254,12 @@ def recommendation_smoke(directory):
         assert [row["job_id"] for row in student(port, "POST", "/query", {})["items"]] == [tied_id]
         assert student(port, "GET", rec + "/reason") == dict(reason, feedback=feedback)
 
-    with server(directory, demo=True) as port:
+    with server(directory, demo=True, demo_db=demo_db) as port:
         assert student(port, "GET", rec + "/reason") == dict(reason, feedback=feedback)
 
 
 def outcomes_demo_smoke(directory):
-    with server(directory, demo=True) as port:
+    with server(directory, demo=True, demo_db=f"outcomes_smoke_{os.getpid()}_{int(time.time() * 1000)}") as port:
         result = career_api(port, "GET", "/outcomes")
         assert result["source"] == "demo"
         assert (result["graduates"], result["employed"]) == (8, 4)
@@ -280,8 +293,8 @@ def authenticated_career_smoke(directory):
         return json.loads(response)
 
     m6 = "/api/modules/data-services"
-    database = Path(directory, "platform.db")
-    with server(directory) as port:
+    database = f"student_platform_auth_test_{os.getpid()}_{int(time.time() * 1000)}"
+    with server(directory, database_name=database) as port:
         admin = call(port, "POST", m6 + "/login",
                      {"username": "admin", "password": "http-admin-password"})["access_token"]
         credentials = {"username": "career", "password": "http-user-password"}
@@ -297,18 +310,17 @@ def authenticated_career_smoke(directory):
         student = call(port, "POST", m6 + "/login", student_credentials)["access_token"]
         call(port, "GET", outcomes, token=student, expected=403)
         call(port, "GET", outcomes, token=career, expected=503)
-        with sqlite3.connect(database) as db:
-            db.execute("CREATE TABLE school_graduates (graduate_id TEXT PRIMARY KEY, "
-                       "graduation_year INTEGER, outcome_category TEXT, industry TEXT)")
-            db.execute("CREATE VIEW cd_outcome_source AS "
-                       "SELECT graduation_year, outcome_category, industry FROM school_graduates")
+        mysql_exec(database,
+                   "CREATE TABLE school_graduates (graduate_id VARCHAR(64) PRIMARY KEY, "
+                   "graduation_year INT, outcome_category VARCHAR(32), industry VARCHAR(100)); "
+                   "CREATE VIEW cd_outcome_source AS "
+                   "SELECT graduation_year, outcome_category, industry FROM school_graduates")
         assert call(port, "GET", outcomes, token=career)["graduates"] == 0
-        with sqlite3.connect(database) as db:
-            db.executemany("INSERT INTO school_graduates VALUES (?,?,?,?)", [
-                ("A", 2024, "employed", " 制造业 "), ("B", 2024, "employed", " "),
-                ("C", 2024, "further_study", "不计入就业行业"), ("D", 2024, None, None),
-                ("E", 2025, "unemployed", None),
-            ])
+        mysql_exec(database,
+                   "INSERT INTO school_graduates VALUES "
+                   "('A',2024,'employed',' 制造业 '),('B',2024,'employed',' '),"
+                   "('C',2024,'further_study','不计入就业行业'),('D',2024,NULL,NULL),"
+                   "('E',2025,'unemployed',NULL)")
         result = call(port, "GET", outcomes + "?to_year=2024", token=career)
         assert result["source"] == "platform" and (result["graduates"], result["employed"]) == (4, 2)
         assert result["industry_distribution"] == [
@@ -317,8 +329,8 @@ def authenticated_career_smoke(directory):
         assert result["outcome_distribution"][-1] == {"category": "unknown", "count": 1, "percent": 25}
         assert len(result["trend"]) == 1 and result["trend"][0]["employment_percent"] == 50
         assert call(port, "GET", outcomes + "?from_year=2025", token=career)["industry_distribution"] == []
-        with sqlite3.connect(database) as db:
-            db.execute("UPDATE school_graduates SET outcome_category = 'unmapped' WHERE graduate_id = 'E'")
+        mysql_exec(database,
+                   "UPDATE school_graduates SET outcome_category = 'unmapped' WHERE graduate_id = 'E'")
         call(port, "GET", outcomes, token=career, expected=503)
         job = {
             "title": "正式岗位", "industry": "信息技术", "job_type": "campus",
@@ -335,14 +347,18 @@ def authenticated_career_smoke(directory):
         assert len(logs) == 1 and logs[0]["outcome"] == "failure"
         logs = call(port, "GET", m6 + "/audit-logs?action=career.job.publish", token=admin)
         assert len(logs) == 1 and logs[0]["after"] == {"status": "published"}
-        with sqlite3.connect(database) as db:
-            db.execute("CREATE TRIGGER test_audit_failure BEFORE INSERT ON audit_logs "
-                       "WHEN NEW.action = 'career.job.update' "
-                       "BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+        mysql_exec(database,
+                   "DELIMITER $$\n"
+                   "CREATE TRIGGER test_audit_failure BEFORE INSERT ON audit_logs "
+                   "FOR EACH ROW BEGIN "
+                   "IF NEW.action = 'career.job.update' THEN "
+                   "SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'test failure'; "
+                   "END IF; END$$\n"
+                   "DELIMITER ;\n")
         call(port, "PUT", job_path, dict(job, title="应回滚"), career, 500)
-        assert call(port, "GET", PREFIX + "/jobs", token=career) == [published]
-        with sqlite3.connect(database) as db:
-            db.execute("DROP TRIGGER test_audit_failure")
+        actual_jobs = call(port, "GET", PREFIX + "/jobs", token=career)
+        assert actual_jobs == [published], (actual_jobs, published)
+        mysql_exec(database, "DROP TRIGGER test_audit_failure")
         updated = call(port, "PUT", job_path, dict(job, title="新岗位"), career)
         logs = call(port, "GET", m6 + "/audit-logs?action=career.job.update", token=admin)
         assert logs[0]["before"] == {"title": published["title"]}
@@ -361,3 +377,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

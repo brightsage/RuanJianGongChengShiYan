@@ -9,14 +9,6 @@
 
 namespace platform::data_services {
 namespace {
-void check(int rc, sqlite3* db) {
-    if (rc != SQLITE_OK) throw std::runtime_error(sqlite3_errmsg(db));
-}
-std::string hex(const unsigned char* bytes, std::size_t length) {
-    std::ostringstream out;
-    for (std::size_t i = 0; i < length; ++i) out << std::hex << std::setw(2) << std::setfill('0') << unsigned(bytes[i]);
-    return out.str();
-}
 Json scrub(const Json& value) {
     if (value.is_array()) {
         auto out = Json::array();
@@ -37,37 +29,52 @@ Json scrub(const Json& value) {
 }
 }  // namespace
 
-Statement::Statement(sqlite3* db, const std::string& sql) { check(sqlite3_prepare_v2(db, sql.c_str(), -1, &statement_, nullptr), db); }
-Statement::~Statement() { sqlite3_finalize(statement_); }
+Statement::Statement(Database& db, std::string sql) : db_(&db), sql_(std::move(sql)) {}
+Statement::~Statement() = default;
 Statement& Statement::bind(int index, const std::string& value) {
-    check(sqlite3_bind_text(statement_, index, value.data(), static_cast<int>(value.size()), SQLITE_TRANSIENT), sqlite3_db_handle(statement_));
+    if (index <= 0) throw std::invalid_argument("invalid bind index");
+    if (params_.size() < static_cast<std::size_t>(index)) params_.resize(index);
+    params_[index - 1] = value;
     return *this;
 }
 Statement& Statement::bind(int index, std::int64_t value) {
-    check(sqlite3_bind_int64(statement_, index, value), sqlite3_db_handle(statement_));
+    if (index <= 0) throw std::invalid_argument("invalid bind index");
+    if (params_.size() < static_cast<std::size_t>(index)) params_.resize(index);
+    params_[index - 1] = value;
     return *this;
 }
 bool Statement::step() {
-    const int rc = sqlite3_step(statement_);
-    if (rc == SQLITE_ROW) return true;
-    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(sqlite3_db_handle(statement_)));
-    return false;
+    if (!executed_) {
+        rows_ = db_->query(sql_, params_);
+        executed_ = true;
+        row_ = 0;
+    }
+    if (row_ >= rows_.size()) return false;
+    ++row_;
+    return true;
 }
 std::string Statement::text(int index) const {
-    const auto* value = sqlite3_column_text(statement_, index);
-    return value ? reinterpret_cast<const char*>(value) : "";
+    if (row_ == 0 || row_ > rows_.size()) return {};
+    const auto& value = rows_[row_ - 1].at(static_cast<std::size_t>(index));
+    if (const auto* text = std::get_if<std::string>(&value)) return *text;
+    return {};
 }
-std::int64_t Statement::integer(int index) const { return sqlite3_column_int64(statement_, index); }
-void execute(sqlite3* db, const std::string& sql) {
-    char* error = nullptr;
-    const int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &error);
-    const std::string message = error ? error : "SQL failed";
-    sqlite3_free(error);
-    if (rc != SQLITE_OK) throw std::runtime_error(message);
+std::int64_t Statement::integer(int index) const {
+    if (row_ == 0 || row_ > rows_.size()) return 0;
+    const auto& value = rows_[row_ - 1].at(static_cast<std::size_t>(index));
+    if (const auto* number = std::get_if<std::int64_t>(&value)) return *number;
+    if (const auto* number = std::get_if<double>(&value))
+        return static_cast<std::int64_t>(*number);
+    return 0;
 }
-Transaction::Transaction(sqlite3* db) : db_(db) { execute(db_, "BEGIN IMMEDIATE"); }
-Transaction::~Transaction() { if (!committed_) sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr); }
-void Transaction::commit() { execute(db_, "COMMIT"); committed_ = true; }
+void execute(Database& db, const std::string& sql) { db.exec(sql); }
+Transaction::Transaction(Database& db) : db_(db) { db_.begin(); }
+Transaction::~Transaction() {
+    if (!committed_) {
+        try { db_.rollback(); } catch (...) {}
+    }
+}
+void Transaction::commit() { db_.commit(); committed_ = true; }
 
 std::string random_token(const std::string& prefix) {
     return prefix + crypto::random_bytes_hex(16);
@@ -122,84 +129,198 @@ security::Scope parse_scope(const Json& value) {
     return scope;
 }
 
-Store::Store(const AppOptions& options) : clock_(options.clock) {
+Store::Store(const AppOptions& options) : db(options.database_path), clock_(options.clock) {
     if (!clock_) clock_ = [] { return std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::system_clock::now().time_since_epoch()).count(); };
-    if (sqlite3_open(options.database_path.c_str(), &db) != SQLITE_OK) {
-        const std::string message = sqlite3_errmsg(db); sqlite3_close(db); db = nullptr;
-        throw std::runtime_error(message);
-    }
-    try {
-        sqlite3_busy_timeout(db, 3000);
-        execute(db, "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;");
-        execute(db, R"SQL(
-            CREATE TABLE IF NOT EXISTS roles(code TEXT PRIMARY KEY, name TEXT NOT NULL,
-                scope_type TEXT NOT NULL, permissions TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS permission_catalog(code TEXT PRIMARY KEY, name TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL, salt TEXT NOT NULL, role TEXT NOT NULL REFERENCES roles(code),
-                org_id TEXT NOT NULL, class_id TEXT NOT NULL, student_no TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
-            CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL,
-                actor_id TEXT NOT NULL, action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL,
-                outcome TEXT NOT NULL, reason TEXT NOT NULL, request_id TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS services(id TEXT PRIMARY KEY, name TEXT NOT NULL, provider_id TEXT NOT NULL,
-                version TEXT NOT NULL, fields TEXT NOT NULL, scope TEXT NOT NULL, rate_per_minute INTEGER NOT NULL,
-                active INTEGER NOT NULL DEFAULT 1, bucket INTEGER NOT NULL DEFAULT 0, bucket_count INTEGER NOT NULL DEFAULT 0,
-                UNIQUE(name,version));
-            CREATE TABLE IF NOT EXISTS applications(id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id),
-                service_id TEXT NOT NULL REFERENCES services(id), purpose TEXT NOT NULL, scope TEXT NOT NULL,
-                validity_seconds INTEGER NOT NULL, quota INTEGER NOT NULL, rate_per_minute INTEGER NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending', reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS grants(id TEXT PRIMARY KEY, application_id TEXT UNIQUE NOT NULL REFERENCES applications(id),
-                owner_id TEXT NOT NULL REFERENCES users(id), service_id TEXT NOT NULL REFERENCES services(id), scope TEXT NOT NULL,
-                expires_at INTEGER NOT NULL, quota INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0,
-                rate_per_minute INTEGER NOT NULL, mask_level TEXT NOT NULL, token_hash TEXT NOT NULL DEFAULT '',
-                revoked INTEGER NOT NULL DEFAULT 0, bucket INTEGER NOT NULL DEFAULT 0, bucket_count INTEGER NOT NULL DEFAULT 0);
-            CREATE INDEX IF NOT EXISTS grants_token ON grants(token_hash);
-            CREATE TABLE IF NOT EXISTS masking_rules(field TEXT PRIMARY KEY, algorithm TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS call_logs(id INTEGER PRIMARY KEY, created_at INTEGER NOT NULL,
-                service_id TEXT NOT NULL, grant_id TEXT NOT NULL, actor_id TEXT NOT NULL,
-                status INTEGER NOT NULL, reason TEXT NOT NULL, request_id TEXT NOT NULL);
-            CREATE INDEX IF NOT EXISTS call_logs_service ON call_logs(service_id,created_at);
-            CREATE INDEX IF NOT EXISTS audit_logs_time ON audit_logs(created_at);
-        )SQL");
-        Transaction tx(db);
-        const auto role = [&](const std::string& code, const std::string& name, const std::string& scope,
-                              std::vector<std::string> permissions) {
-            for (const auto& code : permissions)
-                Statement(db, "INSERT OR IGNORE INTO permission_catalog VALUES(?,?)").bind(1, code).bind(2, code).step();
-            Statement(db, "INSERT OR IGNORE INTO roles VALUES(?,?,?,?)").bind(1, code).bind(2, name).bind(3, scope)
-                .bind(4, strings(permissions).dump()).step();
-        };
-        role("system_admin", "系统管理员", "all", {"users.manage", "roles.manage", "masking.manage", "audit.read"});
-        role("data_admin", "数据管理员", "all", {"services.publish", "grants.approve", "services.read"});
-        role("college_admin", "院系管理员", "college", {"grants.apply", "services.read"});
-        role("third_party", "第三方应用", "college", {"grants.apply", "services.read"});
-        role("career_center", "就业指导中心", "all", {"career.jobs.read", "career.jobs.write",
-            "career.jobs.publish", "career.strategy.write", "career.outcomes.read"});
-        role("student", "学生", "self", {"career.recommendations.read"});
-        role("counselor", "辅导员", "class", {});
-        for (const auto& field : {"student_no", "id_card", "phone", "name"})
-            Statement(db, "INSERT OR IGNORE INTO masking_rules VALUES(?,'partial')").bind(1, field).step();
-        for (const auto& field : {"email", "score", "address", "birth_date", "contact_info"})
-            Statement(db, "INSERT OR IGNORE INTO masking_rules VALUES(?,'redact')").bind(1, field).step();
-        Statement(db, "INSERT OR IGNORE INTO settings VALUES('mask_key',?)").bind(1, random_token("")).step();
-        Statement count(db, "SELECT count(*) FROM users"); count.step();
-        if (count.integer(0) == 0 && !options.bootstrap_password.empty()) {
-            if (options.bootstrap_password.size() < 12) throw std::invalid_argument("bootstrap password must have at least 12 characters");
-            auto salt = random_token("");
-            Statement(db, "INSERT INTO users VALUES(?,?,?,?,?,'','','',1)")
-                .bind(1, random_token("u_")).bind(2, options.bootstrap_username)
-                .bind(3, password_hash(options.bootstrap_password, salt)).bind(4, salt).bind(5, "system_admin").step();
-        } else if (count.integer(0) == 0 && options.require_bootstrap) {
-            throw std::invalid_argument("first start requires PLATFORM_ADMIN_PASSWORD (at least 12 characters)");
+
+    execute(db, R"SQL(
+        CREATE TABLE IF NOT EXISTS roles(
+            code VARCHAR(64) PRIMARY KEY,
+            name VARCHAR(200) NOT NULL,
+            scope_type VARCHAR(16) NOT NULL,
+            permissions TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS permission_catalog(
+            code VARCHAR(100) PRIMARY KEY,
+            name VARCHAR(200) NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS users(
+            id VARCHAR(64) PRIMARY KEY,
+            username VARCHAR(100) UNIQUE NOT NULL,
+            password_hash VARCHAR(128) NOT NULL,
+            salt VARCHAR(128) NOT NULL,
+            role VARCHAR(64) NOT NULL,
+            org_id VARCHAR(100) NOT NULL,
+            class_id VARCHAR(100) NOT NULL,
+            student_no VARCHAR(100) NOT NULL,
+            active TINYINT NOT NULL DEFAULT 1,
+            CONSTRAINT fk_users_role FOREIGN KEY (role) REFERENCES roles(code)
+        );
+        CREATE TABLE IF NOT EXISTS sessions(
+            token_hash VARCHAR(128) PRIMARY KEY,
+            user_id VARCHAR(64) NOT NULL,
+            expires_at BIGINT NOT NULL,
+            CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS audit_logs(
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            created_at BIGINT NOT NULL,
+            actor_id VARCHAR(64) NOT NULL,
+            action VARCHAR(100) NOT NULL,
+            resource_type VARCHAR(64) NOT NULL,
+            resource_id VARCHAR(100) NOT NULL,
+            outcome VARCHAR(16) NOT NULL,
+            reason VARCHAR(255) NOT NULL,
+            request_id VARCHAR(100) NOT NULL,
+            before_json LONGTEXT NOT NULL,
+            after_json LONGTEXT NOT NULL,
+            INDEX idx_audit_logs_time (created_at)
+        );
+        CREATE TABLE IF NOT EXISTS services(
+            id VARCHAR(64) PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            provider_id VARCHAR(100) NOT NULL,
+            version VARCHAR(32) NOT NULL,
+            fields TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            rate_per_minute INT NOT NULL,
+            active TINYINT NOT NULL DEFAULT 1,
+            bucket BIGINT NOT NULL DEFAULT 0,
+            bucket_count INT NOT NULL DEFAULT 0,
+            UNIQUE KEY uq_services_name_version (name, version)
+        );
+        CREATE TABLE IF NOT EXISTS applications(
+            id VARCHAR(64) PRIMARY KEY,
+            owner_id VARCHAR(64) NOT NULL,
+            service_id VARCHAR(64) NOT NULL,
+            purpose TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            validity_seconds INT NOT NULL,
+            quota INT NOT NULL,
+            rate_per_minute INT NOT NULL,
+            status VARCHAR(16) NOT NULL DEFAULT 'pending',
+            reason VARCHAR(255) NOT NULL DEFAULT '',
+            created_at BIGINT NOT NULL,
+            CONSTRAINT fk_applications_owner FOREIGN KEY (owner_id) REFERENCES users(id),
+            CONSTRAINT fk_applications_service FOREIGN KEY (service_id) REFERENCES services(id)
+        );
+        CREATE TABLE IF NOT EXISTS grants(
+            id VARCHAR(64) PRIMARY KEY,
+            application_id VARCHAR(64) NOT NULL UNIQUE,
+            owner_id VARCHAR(64) NOT NULL,
+            service_id VARCHAR(64) NOT NULL,
+            scope TEXT NOT NULL,
+            expires_at BIGINT NOT NULL,
+            quota INT NOT NULL,
+            used INT NOT NULL DEFAULT 0,
+            rate_per_minute INT NOT NULL,
+            mask_level VARCHAR(16) NOT NULL,
+            token_hash VARCHAR(128) NOT NULL DEFAULT '',
+            revoked TINYINT NOT NULL DEFAULT 0,
+            bucket BIGINT NOT NULL DEFAULT 0,
+            bucket_count INT NOT NULL DEFAULT 0,
+            CONSTRAINT fk_grants_application FOREIGN KEY (application_id) REFERENCES applications(id),
+            CONSTRAINT fk_grants_owner FOREIGN KEY (owner_id) REFERENCES users(id),
+            CONSTRAINT fk_grants_service FOREIGN KEY (service_id) REFERENCES services(id),
+            INDEX idx_grants_token (token_hash)
+        );
+        CREATE TABLE IF NOT EXISTS masking_rules(
+            field VARCHAR(100) PRIMARY KEY,
+            algorithm VARCHAR(16) NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS settings(
+            setting_key VARCHAR(100) PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS call_logs(
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            created_at BIGINT NOT NULL,
+            service_id VARCHAR(64) NOT NULL,
+            grant_id VARCHAR(64) NOT NULL,
+            actor_id VARCHAR(64) NOT NULL,
+            status INT NOT NULL,
+            reason VARCHAR(255) NOT NULL,
+            request_id VARCHAR(100) NOT NULL,
+            INDEX idx_call_logs_service (service_id, created_at)
+        );
+    )SQL");
+
+    Transaction tx(db);
+    const auto role = [&](const std::string& code, const std::string& name, const std::string& scope,
+                          std::vector<std::string> permissions) {
+        for (const auto& permission : permissions)
+            Statement(db, "INSERT IGNORE INTO permission_catalog VALUES(?,?)")
+                .bind(1, permission).bind(2, permission).step();
+        Statement(db, "INSERT IGNORE INTO roles VALUES(?,?,?,?)")
+            .bind(1, code).bind(2, name).bind(3, scope)
+            .bind(4, strings(permissions).dump()).step();
+    };
+    role("system_admin", "系统管理员", "all", {"users.manage", "roles.manage", "masking.manage",
+        "audit.read", "ingestion.read", "ingestion.write", "profile.read", "profile.write",
+        "governance.read", "governance.write", "alert.read", "alert.write"});
+    role("data_admin", "数据管理员", "all", {"services.publish", "grants.approve", "services.read",
+        "ingestion.read", "ingestion.write", "profile.read", "profile.write",
+        "governance.read", "governance.write", "alert.read", "alert.write"});
+    role("college_admin", "院系管理员", "college", {"grants.apply", "services.read", "profile.read",
+        "alert.read", "alert.write"});
+    role("third_party", "第三方应用", "college", {"grants.apply", "services.read"});
+    role("career_center", "就业指导中心", "all", {"career.jobs.read", "career.jobs.write",
+        "career.jobs.publish", "career.strategy.write", "career.outcomes.read"});
+    role("student", "学生", "self", {"career.recommendations.read", "profile.read"});
+    role("counselor", "辅导员", "class", {"profile.read", "alert.read", "alert.write"});
+
+    // 给已有数据库追加本轮新增权限，保留管理员自定义的其它权限。
+    const auto grant_permissions = [&](const std::string& role_code,
+                                       std::initializer_list<const char*> additions) {
+        Statement row(db, "SELECT permissions FROM roles WHERE code=?");
+        row.bind(1, role_code);
+        if (!row.step()) return;
+        Json current = Json::parse(row.text(0));
+        std::vector<std::string> values;
+        for (const auto& item : current.as_array()) values.push_back(item.as_string());
+        bool changed = false;
+        for (const char* permission : additions) {
+            if (std::find(values.begin(), values.end(), permission) == values.end()) {
+                values.emplace_back(permission);
+                Statement(db, "INSERT IGNORE INTO permission_catalog VALUES(?,?)")
+                    .bind(1, permission).bind(2, permission).step();
+                changed = true;
+            }
         }
-        tx.commit();
-    } catch (...) { sqlite3_close(db); db = nullptr; throw; }
+        if (changed)
+            Statement(db, "UPDATE roles SET permissions=? WHERE code=?")
+                .bind(1, strings(values).dump()).bind(2, role_code).step();
+    };
+    grant_permissions("system_admin",
+                      {"ingestion.read", "ingestion.write", "profile.read", "profile.write",
+                       "governance.read", "governance.write", "alert.read", "alert.write"});
+    grant_permissions("data_admin",
+                      {"ingestion.read", "ingestion.write", "profile.read", "profile.write",
+                       "governance.read", "governance.write", "alert.read", "alert.write"});
+    grant_permissions("college_admin", {"profile.read", "alert.read", "alert.write"});
+    grant_permissions("student", {"profile.read"});
+    grant_permissions("counselor", {"profile.read", "alert.read", "alert.write"});
+    for (const auto& field : {"student_no", "id_card", "phone", "name"})
+        Statement(db, "INSERT IGNORE INTO masking_rules VALUES(?,'partial')").bind(1, field).step();
+    for (const auto& field : {"email", "score", "address", "birth_date", "contact_info"})
+        Statement(db, "INSERT IGNORE INTO masking_rules VALUES(?,'redact')").bind(1, field).step();
+    Statement(db, "INSERT IGNORE INTO settings (setting_key, value) VALUES('mask_key',?)")
+        .bind(1, random_token("")).step();
+    Statement count(db, "SELECT count(*) FROM users");
+    count.step();
+    if (count.integer(0) == 0 && !options.bootstrap_password.empty()) {
+        if (options.bootstrap_password.size() < 12)
+            throw std::invalid_argument("bootstrap password must have at least 12 characters");
+        const auto salt = random_token("");
+        Statement(db, "INSERT INTO users VALUES(?,?,?,?,?,'','','',1)")
+            .bind(1, random_token("u_")).bind(2, options.bootstrap_username)
+            .bind(3, password_hash(options.bootstrap_password, salt)).bind(4, salt)
+            .bind(5, "system_admin").step();
+    } else if (count.integer(0) == 0 && options.require_bootstrap) {
+        throw std::invalid_argument("first start requires PLATFORM_ADMIN_PASSWORD (at least 12 characters)");
+    }
+    tx.commit();
 }
-Store::~Store() { sqlite3_close(db); }
 void Store::audit(const std::string& actor, const security::AuditEvent& event) {
     if (actor.empty() || event.action.empty() || event.resource_type.empty() || event.resource_id.empty() ||
         (event.outcome != "success" && event.outcome != "failure")) throw std::invalid_argument("incomplete audit event");

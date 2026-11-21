@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <exception>
 #include <cstdlib>
-#include <filesystem>
 #ifndef _WIN32
 #include <sys/stat.h>
 #endif
@@ -34,15 +33,10 @@ int main(int argc, char** argv) {
         platform::AppOptions options;
         const auto* demo = std::getenv("PLATFORM_CAREER_DEMO");
         const bool demo_mode = demo && std::string(demo) == "1";
-        options.database_path = demo_mode ? ":memory:" : platform::default_database_path();
-        if (options.database_path != ":memory:") {
-            const auto parent = std::filesystem::path(options.database_path).parent_path();
-            if (!parent.empty()) std::filesystem::create_directories(parent);
-        }
-        if (!demo_mode) {
-            if (const auto* password = std::getenv("PLATFORM_ADMIN_PASSWORD")) options.bootstrap_password = password;
-            options.require_bootstrap = true;
-        }
+        options.database_path = platform::default_database_path();
+        if (const auto* password = std::getenv("PLATFORM_ADMIN_PASSWORD"))
+            options.bootstrap_password = password;
+        if (!demo_mode) options.require_bootstrap = true;
         const auto app = platform::make_app(options);
         platform::serve(app, port);
     } catch (const std::exception& error) {

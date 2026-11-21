@@ -2,21 +2,42 @@
 
 namespace data_governance {
 
-// 初始化模拟数据
-std::vector<QualityRule> mock_quality_rules = {
-    {1, "学号非空校验", "not_null", "student_no", "error"},
-    {2, "成绩值域校验", "range", "score", "warn"},
-    {3, "身份证格式校验", "format", "id_card", "error"}
-};
+platform::Json rule_to_json(const QualityRule& rule) {
+    platform::Json item = platform::Json::object();
+    item["rule_id"] = rule.rule_id;
+    item["rule_name"] = rule.rule_name;
+    item["rule_type"] = rule.rule_type;
+    item["target_field"] = rule.target_field;
+    item["level"] = rule.level;
+    item["enabled"] = rule.enabled;
+    return item;
+}
 
-std::vector<StudentMaster> mock_student_master = {
-    {1001, "2023001", "张三", "软件工程", "软工2301", "active"},
-    {1002, "2023002", "李四", "计算机科学", "计科2302", "active"},
-    {1003, "2023003", "王五", "软件工程", "软工2301", "active"}
-};
+platform::Json master_to_json(const StudentMaster& master) {
+    platform::Json item = platform::Json::object();
+    item["student_id"] = master.student_id;
+    item["student_no"] = master.student_no;
+    item["name"] = master.name;
+    item["major"] = master.major;
+    item["class"] = master.class_name;
+    item["class_name"] = master.class_name;
+    item["org_id"] = master.org_id;
+    item["status"] = master.status;
+    item["source"] = master.source;
+    item["merged_at"] = master.merged_at;
+    return item;
+}
 
-QualityReport mock_quality_report = {
-    15230, 14980, 250, 98.3, 98.7, "2026-10-27 10:30:00"
-};
+platform::Json metric_to_json(const MetricDefinition& definition) {
+    platform::Json item = platform::Json::object();
+    item["metric_code"] = definition.metric_code;
+    item["name"] = definition.name;
+    item["formula"] = definition.formula;
+    item["weight"] = definition.weight;
+    item["term"] = definition.term;
+    item["version"] = definition.version;
+    item["active"] = definition.active;
+    return item;
+}
 
-} // namespace data_governance
+}  // namespace data_governance

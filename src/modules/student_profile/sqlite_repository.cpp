@@ -13,6 +13,7 @@ Student read_student(const DbRow& row) {
     student.class_name = row.get_string("class_name");
     student.grade = static_cast<int>(row.get_int64("grade"));
     student.updated_at = row.get_string("updated_at");
+    student.org_id = row.get_string("org_id");
     return student;
 }
 
@@ -65,115 +66,88 @@ ProfileSnapshot read_snapshot(const DbRow& row) {
 SqliteProfileRepository::SqliteProfileRepository(Database& database) : db_(database) {
     db_.exec(R"sql(
 CREATE TABLE IF NOT EXISTS sp_student (
-    student_id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    major TEXT NOT NULL DEFAULT '',
-    class_name TEXT NOT NULL DEFAULT '',
-    grade INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    student_id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    major VARCHAR(200) NOT NULL,
+    class_name VARCHAR(200) NOT NULL,
+    grade INT NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    org_id VARCHAR(100) NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS sp_metric_value (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id TEXT NOT NULL REFERENCES sp_student(student_id) ON DELETE CASCADE,
-    metric_code TEXT NOT NULL,
-    term TEXT NOT NULL,
-    value REAL NOT NULL,
-    unit TEXT NOT NULL DEFAULT '',
-    source TEXT NOT NULL DEFAULT '',
-    calculated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(student_id, metric_code, term)
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    student_id VARCHAR(64) NOT NULL,
+    metric_code VARCHAR(100) NOT NULL,
+    term VARCHAR(64) NOT NULL,
+    value DOUBLE NOT NULL,
+    unit VARCHAR(32) NOT NULL,
+    source VARCHAR(64) NOT NULL,
+    calculated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_sp_metric (student_id, metric_code, term),
+    INDEX idx_sp_metric_student (student_id, term),
+    CONSTRAINT fk_sp_metric_student FOREIGN KEY (student_id)
+        REFERENCES sp_student(student_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS sp_tag (
-    code TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    dimension TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    rule TEXT NOT NULL DEFAULT '{}'
+    code VARCHAR(100) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    dimension VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    rule LONGTEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sp_student_tag (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id TEXT NOT NULL REFERENCES sp_student(student_id) ON DELETE CASCADE,
-    tag_code TEXT NOT NULL REFERENCES sp_tag(code),
-    term TEXT NOT NULL DEFAULT '',
-    evidence TEXT NOT NULL DEFAULT '{}',
-    calculated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(student_id, tag_code, term)
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    student_id VARCHAR(64) NOT NULL,
+    tag_code VARCHAR(100) NOT NULL,
+    term VARCHAR(64) NOT NULL,
+    evidence LONGTEXT NOT NULL,
+    calculated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_sp_student_tag (student_id, tag_code, term),
+    INDEX idx_sp_tag_student_term (student_id, term),
+    CONSTRAINT fk_sp_tag_student FOREIGN KEY (student_id)
+        REFERENCES sp_student(student_id) ON DELETE CASCADE,
+    CONSTRAINT fk_sp_tag_code FOREIGN KEY (tag_code) REFERENCES sp_tag(code)
 );
 
 CREATE TABLE IF NOT EXISTS sp_profile_snapshot (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id TEXT NOT NULL REFERENCES sp_student(student_id) ON DELETE CASCADE,
-    term TEXT NOT NULL,
-    payload TEXT NOT NULL DEFAULT '{}',
-    generated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(student_id, term)
-);
-
-CREATE INDEX IF NOT EXISTS idx_sp_metric_student ON sp_metric_value(student_id, term);
-CREATE INDEX IF NOT EXISTS idx_sp_snapshot_student ON sp_profile_snapshot(student_id, term);
-)sql");
-
-    // 兼容已经存在的旧库：早期版本没有 rule 列。
-    bool has_rule = false;
-    for (const auto& row : db_.query("PRAGMA table_info(sp_tag)")) {
-        if (row.get_string("name") == "rule") {
-            has_rule = true;
-            break;
-        }
-    }
-    if (!has_rule) db_.exec("ALTER TABLE sp_tag ADD COLUMN rule TEXT NOT NULL DEFAULT '{}'");
-
-    // 兼容旧库：早期标签结果没有 term 列，也没有 (student_id, tag_code, term) 唯一约束。
-    bool has_term = false;
-    for (const auto& row : db_.query("PRAGMA table_info(sp_student_tag)")) {
-        if (row.get_string("name") == "term") {
-            has_term = true;
-            break;
-        }
-    }
-    if (!has_term) {
-        db_.exec("DROP TABLE IF EXISTS sp_student_tag_old");
-        db_.exec("ALTER TABLE sp_student_tag RENAME TO sp_student_tag_old");
-        db_.exec(R"sql(
-CREATE TABLE sp_student_tag (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id TEXT NOT NULL REFERENCES sp_student(student_id) ON DELETE CASCADE,
-    tag_code TEXT NOT NULL REFERENCES sp_tag(code),
-    term TEXT NOT NULL DEFAULT '',
-    evidence TEXT NOT NULL DEFAULT '{}',
-    calculated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(student_id, tag_code, term)
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    student_id VARCHAR(64) NOT NULL,
+    term VARCHAR(64) NOT NULL,
+    payload LONGTEXT NOT NULL,
+    generated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_sp_snapshot (student_id, term),
+    INDEX idx_sp_snapshot_student (student_id, term),
+    CONSTRAINT fk_sp_snapshot_student FOREIGN KEY (student_id)
+        REFERENCES sp_student(student_id) ON DELETE CASCADE
 );
 )sql");
-        db_.exec(
-            "INSERT INTO sp_student_tag (id, student_id, tag_code, term, evidence, "
-            "calculated_at) SELECT id, student_id, tag_code, '', evidence, calculated_at "
-            "FROM sp_student_tag_old");
-        db_.exec("DROP TABLE sp_student_tag_old");
-    }
-    db_.exec(
-        "CREATE INDEX IF NOT EXISTS idx_sp_tag_student_term "
-        "ON sp_student_tag(student_id, term)");
+
+    const auto org_column = db_.query(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name = 'sp_student' "
+        "AND column_name = 'org_id'");
+    if (org_column.empty())
+        db_.exec("ALTER TABLE sp_student ADD COLUMN org_id VARCHAR(100) NOT NULL DEFAULT ''");
 }
 
 void SqliteProfileRepository::upsert_student(const Student& student) {
     db_.exec(
-        "INSERT INTO sp_student (student_id, name, major, class_name, grade) "
-        "VALUES (?, ?, ?, ?, ?) "
-        "ON CONFLICT(student_id) DO UPDATE SET "
-        "name = excluded.name, major = excluded.major, class_name = excluded.class_name, "
-        "grade = excluded.grade, updated_at = datetime('now')",
+        "INSERT INTO sp_student (student_id, name, major, class_name, grade, org_id) "
+        "VALUES (?, ?, ?, ?, ?, ?) "
+        "ON DUPLICATE KEY UPDATE "
+        "name = VALUES(name), major = VALUES(major), class_name = VALUES(class_name), "
+        "grade = VALUES(grade), org_id = VALUES(org_id), updated_at = NOW()",
         {student.student_id, student.name, student.major, student.class_name,
-         static_cast<std::int64_t>(student.grade)});
+         static_cast<std::int64_t>(student.grade), student.org_id});
 }
 
 std::optional<Student> SqliteProfileRepository::find_student(
     const std::string& student_id) const {
     const auto rows = db_.query(
-        "SELECT student_id, name, major, class_name, grade, updated_at "
+        "SELECT student_id, name, major, class_name, grade, updated_at, org_id "
         "FROM sp_student WHERE student_id = ?",
         {student_id});
     if (rows.empty()) return std::nullopt;
@@ -182,7 +156,7 @@ std::optional<Student> SqliteProfileRepository::find_student(
 
 std::vector<Student> SqliteProfileRepository::list_students() const {
     const auto rows = db_.query(
-        "SELECT student_id, name, major, class_name, grade, updated_at "
+        "SELECT student_id, name, major, class_name, grade, updated_at, org_id "
         "FROM sp_student ORDER BY student_id");
     std::vector<Student> students;
     students.reserve(rows.size());
@@ -194,9 +168,9 @@ void SqliteProfileRepository::upsert_metric(const MetricValue& metric) {
     db_.exec(
         "INSERT INTO sp_metric_value (student_id, metric_code, term, value, unit, source) "
         "VALUES (?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(student_id, metric_code, term) DO UPDATE SET "
-        "value = excluded.value, unit = excluded.unit, source = excluded.source, "
-        "calculated_at = datetime('now')",
+        "ON DUPLICATE KEY UPDATE "
+        "value = VALUES(value), unit = VALUES(unit), source = VALUES(source), "
+        "calculated_at = NOW()",
         {metric.student_id, metric.metric_code, metric.term, metric.value, metric.unit,
          metric.source});
 }
@@ -224,9 +198,9 @@ void SqliteProfileRepository::upsert_tag(const Tag& tag) {
     db_.exec(
         "INSERT INTO sp_tag (code, name, dimension, description, rule) "
         "VALUES (?, ?, ?, ?, ?) "
-        "ON CONFLICT(code) DO UPDATE SET name = excluded.name, "
-        "dimension = excluded.dimension, description = excluded.description, "
-        "rule = excluded.rule",
+        "ON DUPLICATE KEY UPDATE name = VALUES(name), "
+        "dimension = VALUES(dimension), description = VALUES(description), "
+        "rule = VALUES(rule)",
         {tag.code, tag.name, tag.dimension, tag.description, rule});
 }
 
@@ -287,8 +261,8 @@ std::vector<StudentTag> SqliteProfileRepository::list_student_tags(
 void SqliteProfileRepository::save_snapshot(const ProfileSnapshot& snapshot) {
     db_.exec(
         "INSERT INTO sp_profile_snapshot (student_id, term, payload) VALUES (?, ?, ?) "
-        "ON CONFLICT(student_id, term) DO UPDATE SET payload = excluded.payload, "
-        "generated_at = datetime('now')",
+        "ON DUPLICATE KEY UPDATE payload = VALUES(payload), "
+        "generated_at = NOW()",
         {snapshot.student_id, snapshot.term,
          snapshot.payload.empty() ? "{}" : snapshot.payload});
 }

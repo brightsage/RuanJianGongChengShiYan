@@ -13,6 +13,7 @@ struct Student {
     std::string class_name;
     int grade = 0;
     std::string updated_at;
+    std::string org_id;  // 用于 M6 数据范围校验
 };
 
 // 指标值：指标口径由治理模块配置，画像模块按周期读取/写入计算结果。

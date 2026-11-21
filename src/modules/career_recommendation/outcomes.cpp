@@ -84,19 +84,24 @@ struct Cohort {
 Json employment_outcomes(Database& db, std::string_view query, bool demo) {
     const auto range = parse_range(query);
     if (!demo && db.query(
-        "SELECT 1 FROM main.sqlite_schema WHERE name='cd_outcome_source' AND type='view'").empty()) {
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() "
+        "AND table_name = 'cd_outcome_source'").empty()) {
         throw CatalogError(503, "就业去向数据源尚未接入");
     }
 
     // Demo and formal data follow the same grouping and percentage rules.
     const std::string source = demo ? R"SQL(
-        WITH outcome_source(graduation_year, outcome_category, industry) AS (
-            VALUES (2023,'employed','信息技术'), (2023,'further_study',NULL),
-                   (2024,'employed','制造业'), (2024,'employed',NULL),
-                   (2024,'unemployed',NULL), (2025,'employed','信息技术'),
-                   (2025,'abroad',NULL), (2025,'unknown',NULL)
+        WITH outcome_source AS (
+            SELECT 2023 AS graduation_year, 'employed' AS outcome_category, '信息技术' AS industry
+            UNION ALL SELECT 2023, 'further_study', NULL
+            UNION ALL SELECT 2024, 'employed', '制造业'
+            UNION ALL SELECT 2024, 'employed', NULL
+            UNION ALL SELECT 2024, 'unemployed', NULL
+            UNION ALL SELECT 2025, 'employed', '信息技术'
+            UNION ALL SELECT 2025, 'abroad', NULL
+            UNION ALL SELECT 2025, 'unknown', NULL
         )
-    )SQL" : "WITH outcome_source AS (SELECT graduation_year, outcome_category, industry FROM main.cd_outcome_source)";
+    )SQL" : "WITH outcome_source AS (SELECT graduation_year, outcome_category, industry FROM cd_outcome_source)";
     const auto grouped = db.query(source + R"SQL(
         SELECT graduation_year, COALESCE(outcome_category, 'unknown') AS category,
                CASE WHEN outcome_category = 'employed' THEN NULLIF(TRIM(industry), '') END AS actual_industry,

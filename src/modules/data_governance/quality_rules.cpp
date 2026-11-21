@@ -1,42 +1,43 @@
 #include "data_governance/quality_rules.h"
+
+#include "modules/data_governance/service.hpp"
 #include "data_governance/types.h"
-#include "data_governance/response_utils.h"
+#include "platform/api.hpp"
+
+#include <vector>
 
 namespace data_governance {
+namespace {
 
-platform::Response handle_list_quality_rules(const platform::Request& req) {
-    json data = json::array();
-    for (const auto& rule : mock_quality_rules) {
-        json item;
-        item["rule_id"] = rule.rule_id;
-        item["rule_name"] = rule.rule_name;
-        item["rule_type"] = rule.rule_type;
-        item["target_field"] = rule.target_field;
-        item["level"] = rule.level;
-        data.push_back(item);
-    }
-    return success_response(data);
+platform::Json rules_json(const std::vector<QualityRule>& rules) {
+    platform::Json array = platform::Json::array();
+    for (const auto& rule : rules) array.push_back(rule_to_json(rule));
+    return array;
 }
 
-platform::Response handle_create_quality_rule(const platform::Request& req) {
-    try {
-        json body = json::parse(req.body);
-        QualityRule new_rule;
-        new_rule.rule_id = mock_quality_rules.size() + 1;
-        new_rule.rule_name = body.value("rule_name", "");
-        new_rule.rule_type = body.value("rule_type", "");
-        new_rule.target_field = body.value("target_field", "");
-        new_rule.level = body.value("level", "warn");
-        mock_quality_rules.push_back(new_rule);
-        
-        json result;
-        result["rule_id"] = new_rule.rule_id;
-        result["rule_name"] = new_rule.rule_name;
-        return platform::Response(201, "application/json; charset=utf-8", 
-            success_response(result, "规则创建成功").body);
-    } catch (...) {
-        return error_response(400, "请求参数格式错误");
-    }
+}  // namespace
+
+platform::Response handle_list_quality_rules(
+    const std::shared_ptr<GovernanceService>& service, const platform::Request&) {
+    return platform::guard(
+        [&] { return platform::json_ok(rules_json(service->list_quality_rules())); });
 }
 
-} // namespace data_governance
+platform::Response handle_create_quality_rule(
+    const std::shared_ptr<GovernanceService>& service, const platform::Request& request) {
+    return platform::guard([&] {
+        return platform::json_ok(
+            rule_to_json(service->create_quality_rule(platform::parse_json_body(request))), 201);
+    });
+}
+
+platform::Response handle_update_quality_rule(
+    const std::shared_ptr<GovernanceService>& service, const platform::Request& request) {
+    return platform::guard([&] {
+        const auto rule_id = platform::path_param_id(request, "rule_id");
+        return platform::json_ok(rule_to_json(
+            service->update_quality_rule(rule_id, platform::parse_json_body(request))));
+    });
+}
+
+}  // namespace data_governance

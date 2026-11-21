@@ -156,6 +156,15 @@ Response static_file(const std::string& path) {
     } else if (path == "/data-services.css") {
         filename = "data-services.css";
         type = "text/css; charset=utf-8";
+    } else if (path == "/workspace") {
+        filename = "workspace.html";
+        type = "text/html; charset=utf-8";
+    } else if (path == "/workspace.js") {
+        filename = "workspace.js";
+        type = "text/javascript; charset=utf-8";
+    } else if (path == "/workspace.css") {
+        filename = "workspace.css";
+        type = "text/css; charset=utf-8";
     } else {
         return error_response(404, "asset not found");
     }
@@ -233,7 +242,8 @@ Response receive_and_handle(socket_handle fd, const App& app) {
     if (request.path == "/" || request.path == "/career" || request.path == "/career.js" ||
         request.path == "/app.js" || request.path == "/style.css" ||
         request.path == "/data-services" || request.path == "/data-services.js" ||
-        request.path == "/data-services.css") {
+        request.path == "/data-services.css" || request.path == "/workspace" ||
+        request.path == "/workspace.js" || request.path == "/workspace.css") {
         if (request.method != "GET") return error_response(405, "method not allowed");
         return static_file(request.path);
     }

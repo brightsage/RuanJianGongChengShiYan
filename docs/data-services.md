@@ -2,9 +2,9 @@
 
 本模块覆盖实验报告的 UC-DS-01～UC-DS-08，管理页为 `/data-services`。
 
-构建依赖为 OpenSSL 开发包。SQLite 和 JSON 使用平台共享实现。
+平台身份认证与审计使用仓库内置的 `platform/crypto.cpp`，不需要 OpenSSL；MySQL 和 JSON 使用平台共享实现。
 
-首次启动设置 `PLATFORM_ADMIN_PASSWORD`（至少 12 个字符），创建用户名为 `admin` 的系统管理员。默认数据库为 `data/platform.db`，可通过 `PLATFORM_DB_PATH` 指定，兼容旧环境变量 `PLATFORM_DB`。已有数据库不会因重启重置密码。
+首次启动设置 `PLATFORM_ADMIN_PASSWORD`（至少 12 个字符），创建用户名为 `admin` 的系统管理员。默认连接为 `mysql://platform:PlatformPass123!@127.0.0.1:3307/student_platform`，可用 `PLATFORM_DB_URL` 或 `PLATFORM_DB_HOST/PORT/USER/PASSWORD/NAME` 覆盖。已有数据库不会因重启重置密码。
 
 请求前缀：`/api/modules/data-services`。登录 `POST /login` 提交 `username,password`，返回 Bearer `access_token` 和 Unix 秒 `expires_at`。令牌只返回一次，数据库仅保存摘要；有效期 1 小时。`GET /me` 获取当前身份，`POST /logout` 撤销当前会话。
 
@@ -31,6 +31,8 @@
 ## 提供者与受控调用
 
 其他模块通过 `app.data_services()->register_provider(id, fields, handler)` 接入只读数据提供者，声明允许发布的字段。头文件为 `include/platform/data_services.hpp`。应用先初始化数据服务模块，然后初始化其余模块，所以各模块注册函数中即可调用此入口。`GET /providers` 供数据管理员查看当前注册的提供者。
+
+当前已注册的提供者：`student_profile`（由学生画像模块注册），字段为 `student_id`、`student_no`、`class_id`、`class_name`、`name`、`major`、`org_id`、`grade`；调用时可用 `parameters.student_id` 过滤单个学生。
 
 handler 接收 `Query {caller,scope,fields,parameters}`，返回记录数组。有范围限制时，记录必须携带真实 `org_id`，班级范围还需 `class_id`，本人范围还需 `student_no`。提供者先按 scope 查询，网关返回前再次筛选范围，并且只保留已发布字段。调用者不能在请求体中指定授权范围。提供者应只读且不产生外部副作用。
 
@@ -91,7 +93,7 @@ Authorization: Bearer usr_<redacted>
 platform::security::AuditEvent event{"career.job.update", "job", job_id};
 event.before = before;  // platform::Json，建议只放发生变化的字段
 event.after = after;
-security->audited_write(actor, event, [&](sqlite3* db) {
+security->audited_write(actor, event, [&](platform::Database& db) {
     // 在 db 上执行岗位 SQL，检查返回值并在失败时抛异常。
 });
 ```
@@ -100,6 +102,6 @@ security->audited_write(actor, event, [&](sqlite3* db) {
 
 ## 验证与当前限制
 
-`ctest --test-dir build --output-on-failure` 运行应用回归、身份权限、服务授权、网关脱敏和两个真实 HTTP 测试。测试数据只存在于内存或临时目录，不写默认数据库。覆盖了权限与范围拒绝、过期/停用/退出、服务版本绑定、批准额度约束、轮换与撤销、递归脱敏、授权和服务两级限流、SQLite 审计失败回滚，以及进程重启后的持久化。
+`ctest --test-dir build --output-on-failure` 运行应用回归、身份权限、服务授权、网关脱敏和两个真实 HTTP 测试。测试使用 MySQL 的临时测试库，不写默认数据库。覆盖了权限与范围拒绝、过期/停用/退出、服务版本绑定、批准额度约束、轮换与撤销、递归脱敏、授权和服务两级限流、MySQL 审计失败回滚，以及进程重启后的持久化。
 
 浏览器仅在内存保存登录令牌，刷新后需重新登录。服务令牌只在签发时显示，管理页支持直接带令牌调用服务。底层 HTTP 服务仍是本地单线程开发服务器，没有 TLS、分块传输或跨域部署支持。日志当前持久保存并支持分页筛选，自动归档与留存期清理未实现。数据提供者在其他模块接入前为空，不包含预置学生业务数据。

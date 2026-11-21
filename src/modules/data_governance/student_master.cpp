@@ -1,27 +1,30 @@
 #include "data_governance/student_master.h"
-#include "data_governance/types.h"
-#include "data_governance/response_utils.h"
+
+#include "modules/data_governance/service.hpp"
+#include "platform/api.hpp"
 
 namespace data_governance {
 
-platform::Response handle_get_student_master(const platform::Request& req) {
-    std::string student_id_str = req.path_params.at("student_id");
-    int student_id = std::stoi(student_id_str);
-    
-    for (const auto& student : mock_student_master) {
-        if (student.student_id == student_id) {
-            json data;
-            data["student_id"] = student.student_id;
-            data["student_no"] = student.student_no;
-            data["name"] = student.name;
-            data["major"] = student.major;
-            data["class"] = student.class_name;
-            data["status"] = student.status;
-            return success_response(data);
-        }
-    }
-    
-    return error_response(404, "学生主数据不存在");
+platform::Response handle_list_student_master(
+    const std::shared_ptr<GovernanceService>& service, const platform::Request&) {
+    return platform::guard([&] { return platform::json_ok(service->list_student_master()); });
 }
 
-} // namespace data_governance
+platform::Response handle_get_student_master(
+    const std::shared_ptr<GovernanceService>& service, const platform::Request& request) {
+    return platform::guard([&] {
+        const auto it = request.path_params.find("student_id");
+        const std::string student_id = it == request.path_params.end() ? std::string{} : it->second;
+        return platform::json_ok(service->get_student_master(student_id));
+    });
+}
+
+platform::Response handle_merge_student_master(
+    const std::shared_ptr<GovernanceService>& service, const platform::Request& request) {
+    return platform::guard([&] {
+        return platform::json_ok(
+            service->merge_student_master(platform::parse_json_body(request)));
+    });
+}
+
+}  // namespace data_governance

@@ -1,15 +1,18 @@
 #include "data_governance/metrics.h"
-#include "data_governance/response_utils.h"
-#include <ctime>
+
+#include "modules/data_governance/service.hpp"
+#include "platform/api.hpp"
 
 namespace data_governance {
 
-platform::Response handle_recalculate_metrics(const platform::Request& req) {
-    json data;
-    data["task_id"] = "recalc_" + std::to_string(std::time(nullptr));
-    data["estimated_time"] = "5分钟";
-    return platform::Response(202, "application/json; charset=utf-8",
-        success_response(data, "指标重算任务已提交").body);
+platform::Response handle_recalculate_metrics(
+    const std::shared_ptr<GovernanceService>& service, const platform::Request& request) {
+    return platform::guard([&] {
+        // 允许空 body：默认按最新指标口径、全部主数据学生重算。
+        const platform::Json body =
+            request.body.empty() ? platform::Json::object() : platform::parse_json_body(request);
+        return platform::json_ok(service->recalculate(body));
+    });
 }
 
-} // namespace data_governance
+}  // namespace data_governance

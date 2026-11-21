@@ -70,76 +70,69 @@ RawRecord read_raw_record(const DbRow& row) {
 SqliteIngestionRepository::SqliteIngestionRepository(Database& database) : db_(database) {
     db_.exec(R"sql(
 CREATE TABLE IF NOT EXISTS ing_data_source (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    kind TEXT NOT NULL,
-    access_mode TEXT NOT NULL,
-    owner TEXT NOT NULL DEFAULT '',
-    description TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    kind VARCHAR(32) NOT NULL,
+    access_mode VARCHAR(32) NOT NULL,
+    owner VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS ing_field_mapping (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    data_source_id INTEGER NOT NULL REFERENCES ing_data_source(id) ON DELETE CASCADE,
-    source_field TEXT NOT NULL,
-    standard_field TEXT NOT NULL,
-    transform_expr TEXT NOT NULL DEFAULT '',
-    UNIQUE(data_source_id, source_field)
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    data_source_id BIGINT NOT NULL,
+    source_field VARCHAR(255) NOT NULL,
+    standard_field VARCHAR(255) NOT NULL,
+    transform_expr VARCHAR(255) NOT NULL,
+    UNIQUE KEY uq_ing_mapping (data_source_id, source_field),
+    INDEX idx_ing_mapping_source (data_source_id),
+    CONSTRAINT fk_ing_mapping_source FOREIGN KEY (data_source_id)
+        REFERENCES ing_data_source(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS ing_import_task (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    data_source_id INTEGER NOT NULL REFERENCES ing_data_source(id),
-    name TEXT NOT NULL,
-    import_mode TEXT NOT NULL DEFAULT 'manual',
-    schedule_expr TEXT NOT NULL DEFAULT '',
-    validation_rules TEXT NOT NULL DEFAULT '{}',
-    status TEXT NOT NULL DEFAULT 'pending',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    data_source_id BIGINT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    import_mode VARCHAR(32) NOT NULL,
+    schedule_expr VARCHAR(255) NOT NULL,
+    validation_rules LONGTEXT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_ing_task_source (data_source_id),
+    CONSTRAINT fk_ing_task_source FOREIGN KEY (data_source_id)
+        REFERENCES ing_data_source(id)
 );
 
 CREATE TABLE IF NOT EXISTS ing_import_run (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL REFERENCES ing_import_task(id),
-    idempotency_key TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'running',
-    total_count INTEGER NOT NULL DEFAULT 0,
-    success_count INTEGER NOT NULL DEFAULT 0,
-    failure_count INTEGER NOT NULL DEFAULT 0,
-    started_at TEXT NOT NULL DEFAULT (datetime('now')),
-    finished_at TEXT
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    task_id BIGINT NOT NULL,
+    idempotency_key VARCHAR(255) NULL,
+    status VARCHAR(32) NOT NULL,
+    total_count BIGINT NOT NULL DEFAULT 0,
+    success_count BIGINT NOT NULL DEFAULT 0,
+    failure_count BIGINT NOT NULL DEFAULT 0,
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at DATETIME NULL,
+    UNIQUE KEY uq_ing_run_key (task_id, idempotency_key),
+    INDEX idx_ing_run_task (task_id),
+    CONSTRAINT fk_ing_run_task FOREIGN KEY (task_id) REFERENCES ing_import_task(id)
 );
 
 CREATE TABLE IF NOT EXISTS ing_raw_record (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id INTEGER NOT NULL REFERENCES ing_import_run(id) ON DELETE CASCADE,
-    source_row_no INTEGER NOT NULL,
-    payload TEXT NOT NULL,
-    valid INTEGER NOT NULL DEFAULT 1,
-    error_reason TEXT NOT NULL DEFAULT '',
-    UNIQUE(run_id, source_row_no)
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    run_id BIGINT NOT NULL,
+    source_row_no BIGINT NOT NULL,
+    payload LONGTEXT NOT NULL,
+    valid TINYINT NOT NULL,
+    error_reason TEXT NOT NULL,
+    UNIQUE KEY uq_ing_raw_record (run_id, source_row_no),
+    INDEX idx_ing_raw_run (run_id, valid),
+    CONSTRAINT fk_ing_raw_run FOREIGN KEY (run_id)
+        REFERENCES ing_import_run(id) ON DELETE CASCADE
 );
-
-CREATE INDEX IF NOT EXISTS idx_ing_mapping_source ON ing_field_mapping(data_source_id);
-CREATE INDEX IF NOT EXISTS idx_ing_task_source ON ing_import_task(data_source_id);
-CREATE INDEX IF NOT EXISTS idx_ing_run_task ON ing_import_run(task_id);
-CREATE INDEX IF NOT EXISTS idx_ing_raw_run ON ing_raw_record(run_id, valid);
 )sql");
-
-    // 兼容旧库：早期版本没有 idempotency_key 列。
-    bool has_key = false;
-    for (const auto& row : db_.query("PRAGMA table_info(ing_import_run)")) {
-        if (row.get_string("name") == "idempotency_key") {
-            has_key = true;
-            break;
-        }
-    }
-    if (!has_key)
-        db_.exec("ALTER TABLE ing_import_run ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''");
-    db_.exec(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ing_run_key "
-        "ON ing_import_run(task_id, idempotency_key) WHERE idempotency_key <> ''");
 }
 
 std::int64_t SqliteIngestionRepository::create_data_source(const DataSource& source) {
@@ -255,10 +248,12 @@ void SqliteIngestionRepository::update_import_task_schedule(std::int64_t id,
 
 std::int64_t SqliteIngestionRepository::start_import_run(std::int64_t task_id,
                                                          const std::string& idempotency_key) {
+    const DbValue key = idempotency_key.empty() ? DbValue{std::nullptr_t{}}
+                                                : DbValue{idempotency_key};
     db_.exec(
         "INSERT INTO ing_import_run (task_id, idempotency_key, status) "
         "VALUES (?, ?, 'running')",
-        {task_id, idempotency_key});
+        {task_id, key});
     return db_.last_insert_rowid();
 }
 
@@ -281,7 +276,7 @@ void SqliteIngestionRepository::finish_import_run(std::int64_t run_id,
                                                   std::int64_t failure_count) {
     db_.exec(
         "UPDATE ing_import_run SET status = ?, total_count = ?, success_count = ?, "
-        "failure_count = ?, finished_at = datetime('now') WHERE id = ?",
+        "failure_count = ?, finished_at = NOW() WHERE id = ?",
         {status, total_count, success_count, failure_count, run_id});
 }
 

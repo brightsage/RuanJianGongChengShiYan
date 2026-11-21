@@ -98,26 +98,32 @@ Json validate_feedback(const Json& input) {
     return Json::Object{{"choice", choice}, {"reason", read_text(input, "reason", 2000)}};
 }
 
-Recommendations::Recommendations(Database& database) : db_(database) {
-    db_.exec(R"sql(
+void ensure_recommendation_schema(Database& db) {
+    db.exec(R"sql(
         CREATE TABLE IF NOT EXISTS cd_recommendations (
-            id INTEGER PRIMARY KEY,
-            student_no TEXT NOT NULL,
-            job_id INTEGER NOT NULL REFERENCES cd_jobs(id),
-            job_version INTEGER NOT NULL,
-            strategy_version INTEGER NOT NULL,
-            profile_version TEXT NOT NULL,
-            snapshot TEXT NOT NULL,
-            UNIQUE(student_no, job_id, job_version, strategy_version, profile_version)
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            student_no VARCHAR(64) NOT NULL,
+            job_id BIGINT NOT NULL,
+            job_version INT NOT NULL,
+            strategy_version INT NOT NULL,
+            profile_version VARCHAR(128) NOT NULL,
+            snapshot LONGTEXT NOT NULL,
+            UNIQUE KEY uq_cd_recommendation
+                (student_no, job_id, job_version, strategy_version, profile_version),
+            CONSTRAINT fk_cd_recommendation_job FOREIGN KEY (job_id) REFERENCES cd_jobs(id)
         );
         CREATE TABLE IF NOT EXISTS cd_feedback (
-            recommendation_id INTEGER PRIMARY KEY REFERENCES cd_recommendations(id),
-            choice TEXT NOT NULL CHECK(choice IN ('interested', 'not_interested')),
+            recommendation_id BIGINT PRIMARY KEY,
+            choice VARCHAR(16) NOT NULL CHECK(choice IN ('interested', 'not_interested')),
             reason TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at DATETIME NOT NULL,
+            CONSTRAINT fk_cd_feedback_recommendation FOREIGN KEY (recommendation_id)
+                REFERENCES cd_recommendations(id)
         );
     )sql");
 }
+
+Recommendations::Recommendations(Database& database) : db_(database) {}
 
 Json Recommendations::query(Catalog& catalog, const Profile& profile, const RecommendationFilter& filter) {
     const auto strategy = catalog.get_strategy();
@@ -151,9 +157,9 @@ Json Recommendations::query(Catalog& catalog, const Profile& profile, const Reco
         std::vector<DbValue> key{profile.student_no, job_id, job_version, strategy_version, profile.version};
         auto insert = key;
         insert.emplace_back(detail.dump());
-        db_.exec("INSERT INTO cd_recommendations(student_no,job_id,job_version,strategy_version,profile_version,snapshot) "
-                 "VALUES (?,?,?,?,?,?) ON CONFLICT(student_no,job_id,job_version,strategy_version,profile_version) "
-                 "DO NOTHING", insert);
+        db_.exec("INSERT IGNORE INTO cd_recommendations"
+                 "(student_no,job_id,job_version,strategy_version,profile_version,snapshot) "
+                 "VALUES (?,?,?,?,?,?)", insert);
         const auto rows = db_.query(
             "SELECT r.id,f.choice,f.reason,f.updated_at FROM cd_recommendations r "
             "LEFT JOIN cd_feedback f ON r.id=f.recommendation_id "
@@ -189,9 +195,9 @@ Json Recommendations::save_feedback(const std::string& student_no, std::int64_t 
     find_owned(student_no, id);
     const auto& choice = feedback.at("choice").as_string();
     const auto& reason = feedback.at("reason").as_string();
-    db_.exec("INSERT INTO cd_feedback VALUES (?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now')) "
-             "ON CONFLICT(recommendation_id) DO UPDATE SET choice=excluded.choice, reason=excluded.reason, "
-             "updated_at=excluded.updated_at WHERE choice<>excluded.choice OR reason<>excluded.reason",
+    db_.exec("INSERT INTO cd_feedback VALUES (?,?,?,NOW()) "
+             "ON DUPLICATE KEY UPDATE choice=VALUES(choice), reason=VALUES(reason), "
+             "updated_at=NOW()",
              {id, choice, reason});
     return current_feedback(find_owned(student_no, id));
 }
