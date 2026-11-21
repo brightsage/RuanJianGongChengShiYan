@@ -1,48 +1,1035 @@
-<!doctype html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>学生成长中台 · 接口测试台</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>高校学生成长与职业发展数据中台 · 商业级综合管理系统</title>
+  
+  <!-- 现代高阶设计系统样式表 -->
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header>
-    <h1>学生成长中台</h1>
-    <p>开发接口测试台</p>
-  </header>
-  <main>
-    <section>
-      <h2>模块</h2>
-      <p><a href="/workspace">统一业务工作台 · 数据接入 / 治理 / 画像 / 预警</a></p>
-      <p><a href="/career">职业发展推荐 · 岗位管理与学生推荐</a></p>
-      <p><a href="/data-services">数据服务与权限管理</a></p>
-      <p id="catalog-status">正在读取模块列表…</p>
-      <div id="modules" class="modules"></div>
-    </section>
-    <section>
-      <h2>示例画像</h2>
-      <p>演示数据里的张三（学号 2023001，学期 2026-fall）。点一下直接看结果。</p>
-      <button id="load-demo" type="button">加载张三的画像</button>
-      <p id="demo-status" class="muted"></p>
-      <div id="demo-profile" class="demo-profile"></div>
-    </section>
-    <section>
-      <h2>发送请求</h2>
-      <p class="muted">点击上方路由会自动填入方法和路径；路径里的 <code>:student_id</code>、<code>:source_id</code> 等要换成真实 ID，再点“发送”。</p>
-      <form id="request-form">
-        <div class="request-line">
-          <label>方法 <select id="method"><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></label>
-          <label>路径 <input id="path" value="/api/health" required></label>
+
+  <div class="app-container">
+    
+    <!-- ==================================================================== -->
+    <!-- 侧边导航控制台 (High-End Dark Sidebar)                             -->
+    <!-- ==================================================================== -->
+    <aside class="app-sidebar">
+      <!-- 品牌头部 -->
+      <div class="sidebar-brand">
+        <div class="brand-logo-badge">
+          <!-- 智能中台几何晶状 SVG 图标 -->
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
         </div>
-        <label>请求头（每行一个，格式：名称: 值）<textarea id="headers" rows="3" placeholder="Content-Type: application/json"></textarea></label>
-        <label>请求体<textarea id="body" rows="5" placeholder="可留空"></textarea></label>
-        <button type="submit">发送</button>
-      </form>
-      <h3>响应 <span id="response-status"></span></h3>
-      <pre id="response-body">尚未发送请求。</pre>
-    </section>
-  </main>
+        <div class="brand-info">
+          <div class="brand-title">智成学生数据中台</div>
+          <div class="brand-sub">高校成长与职业发展系统</div>
+        </div>
+      </div>
+
+      <!-- 导航功能列表 -->
+      <div class="sidebar-nav-wrap">
+        <div class="nav-group-title">
+          <span>数据中台业务中心</span>
+          <span style="font-size: 9px; opacity: 0.6; font-family: var(--font-mono);">ENTERPRISE</span>
+        </div>
+        <ul class="sidebar-nav">
+          <li>
+            <a href="#dashboard" class="sidebar-link active" data-tab="dashboard">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <rect x="3" y="3" width="7" height="9" rx="1"/>
+                <rect x="14" y="3" width="7" height="5" rx="1"/>
+                <rect x="14" y="12" width="7" height="9" rx="1"/>
+                <rect x="3" y="16" width="7" height="5" rx="1"/>
+              </svg>
+              <span>数据驾驶舱</span>
+            </a>
+          </li>
+          <li>
+            <a href="#student-profile" class="sidebar-link" data-tab="student-profile">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              <span>学生全息成长画像</span>
+            </a>
+          </li>
+          <li>
+            <a href="#academic-alerts" class="sidebar-link" data-tab="academic-alerts">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span>学业风险预警中心</span>
+              <span class="badge badge-danger text-xs ml-auto" style="padding: 1px 7px;">8</span>
+            </a>
+          </li>
+          <li>
+            <a href="#career-rec" class="sidebar-link" data-tab="career-rec">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+              </svg>
+              <span>职业发展智能推荐</span>
+            </a>
+          </li>
+          <li>
+            <a href="#data-governance" class="sidebar-link" data-tab="data-governance">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+              </svg>
+              <span>数据资产与治理</span>
+            </a>
+          </li>
+          <li>
+            <a href="#data-services" class="sidebar-link" data-tab="data-services">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <span>数据开放与安全网关</span>
+            </a>
+          </li>
+          <li style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0;">
+            <a href="/career" class="sidebar-link" title="进入独立就业指导中心门户">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                <polyline points="15 3 21 3 21 9"/>
+                <line x1="10" y1="14" x2="21" y2="3"/>
+              </svg>
+              <span>职业发展独立门户</span>
+            </a>
+          </li>
+
+          <li style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0;">
+            <a href="/workspace" class="sidebar-link" title="统一业务工作台：数据接入 / 数据治理 / 学生画像 / 学业预警">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <rect x="3" y="3" width="7" height="7"/>
+                <rect x="14" y="3" width="7" height="7"/>
+                <rect x="3" y="14" width="7" height="7"/>
+                <rect x="14" y="14" width="7" height="7"/>
+              </svg>
+              <span>统一业务工作台</span>
+            </a>
+          </li>
+          <li>
+            <a href="#data-services" class="sidebar-link" data-tab="data-services" title="数据服务与接口测试">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <polyline points="16 18 22 12 16 6"/>
+                <polyline points="8 6 2 12 8 18"/>
+              </svg>
+              <span>接口测试台</span>
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <!-- 侧边栏底部身份卡片 -->
+      <div class="sidebar-footer">
+        <div class="sidebar-user-pill">
+          <div class="user-avatar-badge">辅</div>
+          <div class="user-info">
+            <div class="user-name">李老师（辅导员）</div>
+            <div id="sidebar-user-role" class="user-role">计算机与软件工程学院</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================================================================== -->
+    <!-- 主界面内容区 (Main Content)                                          -->
+    <!-- ==================================================================== -->
+    <main class="app-main">
+      
+      <!-- 顶部操作栏 (Glass Topbar) -->
+      <header class="app-topbar">
+        <div class="topbar-left">
+          <div class="topbar-title-wrap">
+            <div id="topbar-page-title" class="topbar-page-title">数据驾驶舱</div>
+            <div id="topbar-breadcrumb" class="topbar-breadcrumb">
+              <span>业务中台</span>
+              <span>/</span>
+              <span>全校学情态势与运营指标</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <!-- 服务端连通状态胶囊 (直连 C++ 127.0.0.1:8080) -->
+          <div id="top-connection-status">
+            <div class="system-status-indicator">
+              <span class="pulse-dot"></span>
+              <span>正在探测后端...</span>
+            </div>
+          </div>
+
+          <!-- 角色演示切换 -->
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="text-xs text-muted font-bold">视角:</span>
+            <select id="top-role-select" class="form-select" style="padding-top: 5px; padding-bottom: 5px; font-weight: 600; width: auto; min-width: 150px;">
+              <option value="李老师（辅导员）">李老师（辅导员）</option>
+              <option value="张伟（学生本人）">张伟（学生本人）</option>
+              <option value="数据中心管理员">数据中心管理员</option>
+              <option value="院系教学办管理员">院系教学办管理员</option>
+              <option value="就业指导中心">就业指导中心主管</option>
+            </select>
+          </div>
+
+          <!-- 脱敏按钮 -->
+          <button id="top-desensitize-btn" class="btn btn-sm btn-secondary" onclick="platformApp.toggleDesensitize()" title="切换《个人信息保护法》动态脱敏展示状态">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <span>隐私脱敏已开启</span>
+          </button>
+
+          <!-- 预警规则引擎中心 -->
+          <button class="btn btn-sm btn-secondary" onclick="platformApp.openRuleConfigModal()" title="查看或新建学业预警判定规则">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <span>规则引擎配置</span>
+          </button>
+
+          <!-- 预警全量研判扫描 -->
+          <button class="btn btn-sm btn-primary" onclick="platformApp.scanAndGenerateAlerts()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+            <span>全量规则扫描</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- 内容承载区 -->
+      <div class="content-body">
+
+        <!-- ================================================================ -->
+        <!-- 1. 数据驾驶舱 (Executive Dashboard)                             -->
+        <!-- ================================================================ -->
+        <section id="tab-dashboard" class="tab-pane active">
+          <!-- 态势横幅 (High-Tech Keynote Banner) -->
+          <div class="hero-banner">
+            <div class="hero-content">
+              <div class="hero-badge-tag">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                2025-2026 学年第一学期实时学情监测
+              </div>
+              <h1>高校学生成长与职业发展数据中台 · 全校态势大屏</h1>
+              <p>
+                集成教务考核、实践科研、行为纪律多源异构管道。基于一人一档主数据底座，实现学业风险全生命周期闭环管控与精准人岗匹配算法。
+              </p>
+              <div class="hero-badges">
+                <span class="hero-badge-pill">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  一人一档覆盖率 99.8%
+                </span>
+                <span class="hero-badge-pill">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                  数据资产质量评分 99.4
+                </span>
+                <span class="hero-badge-pill">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  个保法动态脱敏合规
+                </span>
+                <span class="hero-badge-pill">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/></svg>
+                  智能人岗匹配算法
+                </span>
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="platformApp.scanAndGenerateAlerts()" style="flex-shrink: 0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              <span>刷新实时态势</span>
+            </button>
+          </div>
+
+          <!-- 核心统计指标 Bento 网格 -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-bottom: 24px;">
+            <!-- 全校在读生 -->
+            <div class="metric-tile tile-primary">
+              <div>
+                <div class="metric-header">全校纳管在册学生</div>
+                <div id="stat-total-students" class="metric-number">12,480</div>
+                <div class="metric-sub text-success font-bold">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                  建档融合覆盖率 99.8%
+                </div>
+              </div>
+              <div class="metric-icon-wrap icon-wrap-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                  <circle cx="9" cy="7" r="4"/>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+              </div>
+            </div>
+
+            <!-- 在管风险预警 -->
+            <div class="metric-tile tile-danger">
+              <div>
+                <div class="metric-header">学业风险在管预警</div>
+                <div id="stat-active-alerts" class="metric-number text-danger">0</div>
+                <div class="metric-sub text-muted">
+                  <span class="badge-dot" style="background:#ef4444;"></span>
+                  红/橙/黄分级处置中
+                </div>
+              </div>
+              <div class="metric-icon-wrap icon-wrap-danger">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              </div>
+            </div>
+
+            <!-- 超期督导告警 -->
+            <div class="metric-tile tile-warning">
+              <div>
+                <div class="metric-header">超时未结案警示 (&gt;48h)</div>
+                <div id="stat-overdue-alerts" class="metric-number text-warning">0</div>
+                <div class="metric-sub text-warning font-bold">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  辅导员督导告警中
+                </div>
+              </div>
+              <div class="metric-icon-wrap icon-wrap-warning">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+              </div>
+            </div>
+
+            <!-- 干预闭环归档 -->
+            <div class="metric-tile tile-success">
+              <div>
+                <div class="metric-header">帮扶干预闭环归档</div>
+                <div id="stat-closed-alerts" class="metric-number text-success">0</div>
+                <div class="metric-sub text-success font-bold">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                  全流程谈话留痕归档
+                </div>
+              </div>
+              <div class="metric-icon-wrap icon-wrap-success">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- 图表概览栏 (Canvas Pro Charts) -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;" class="mb-4">
+            <div class="pro-card">
+              <div class="card-header-bar">
+                <div>
+                  <div class="card-title-lg">
+                    <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="18" y1="20" x2="18" y2="10"/>
+                      <line x1="12" y1="20" x2="12" y2="4"/>
+                      <line x1="6" y1="20" x2="6" y2="14"/>
+                    </svg>
+                    <span>学业综合均分分布看板</span>
+                  </div>
+                  <div class="card-subtitle">实时聚合下钻分析</div>
+                </div>
+                <!-- 多维度分组筛选按钮组 -->
+                <div class="d-flex gap-1">
+                  <button class="filter-pill-btn group-pill-btn active" data-group="class" onclick="platformApp.setDashboardGroup('class')">按班级</button>
+                  <button class="filter-pill-btn group-pill-btn" data-group="major" onclick="platformApp.setDashboardGroup('major')">按专业</button>
+                  <button class="filter-pill-btn group-pill-btn" data-group="grade" onclick="platformApp.setDashboardGroup('grade')">按年级</button>
+                </div>
+              </div>
+              <canvas id="chart-dash-class-score" height="230" style="width: 100%;"></canvas>
+            </div>
+
+            <div class="pro-card">
+              <div class="card-header-bar">
+                <div class="card-title-lg">
+                  <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 2a10 10 0 0 1 10 10h-10z"/>
+                  </svg>
+                  <span>学业预警处置生命周期构成</span>
+                </div>
+                <span class="badge badge-slate">全状态机流转</span>
+              </div>
+              <canvas id="chart-dash-alerts-donut" height="230" style="width: 100%;"></canvas>
+            </div>
+          </div>
+
+          <!-- 中台端到端数据流动管线 (Futuristic Data Pipeline) -->
+          <div class="pro-card">
+            <div class="card-header-bar">
+              <div class="card-title-lg">
+                <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+                <span>数据中台全流程协同架构拓扑 (Data Pipeline Architecture)</span>
+              </div>
+              <button class="btn btn-xs btn-outline" onclick="platformApp.runIngestionTask('教务成绩综合系统')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>模拟增量流水接入</span>
+              </button>
+            </div>
+            
+            <div class="pipeline-container">
+              <!-- Step 1 -->
+              <div class="pipeline-node" style="--node-color: #4f46e5; --node-bg: #eef2ff;">
+                <div class="node-top-meta">
+                  <span class="node-step-tag">STEP 01</span>
+                  <span class="node-status-pill badge-primary">ACTIVE</span>
+                </div>
+                <div class="node-icon-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </div>
+                <div class="node-title">多源异构采集</div>
+                <div class="node-desc">教务考勤、科研创新、学工评价多通道实时抽取与CDC流水监听。</div>
+                <div class="node-footer-meta">
+                  <span>吞吐速率</span>
+                  <strong class="font-mono text-dark">4.8k ops/s</strong>
+                </div>
+              </div>
+
+              <!-- Step 2 -->
+              <div class="pipeline-node" style="--node-color: #059669; --node-bg: #ecfdf5;">
+                <div class="node-top-meta">
+                  <span class="node-step-tag">STEP 02</span>
+                  <span class="node-status-pill badge-success">HEALTHY</span>
+                </div>
+                <div class="node-icon-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                  </svg>
+                </div>
+                <div class="node-title">一人一档治理</div>
+                <div class="node-desc">主数据融合清洗，消除一数多源，动态指标口径编目与血缘追踪。</div>
+                <div class="node-footer-meta">
+                  <span>数据质量分</span>
+                  <strong class="font-mono text-success">99.4 分</strong>
+                </div>
+              </div>
+
+              <!-- Step 3 -->
+              <div class="pipeline-node" style="--node-color: #7c3aed; --node-bg: #f5f3ff;">
+                <div class="node-top-meta">
+                  <span class="node-step-tag">STEP 03</span>
+                  <span class="node-status-pill" style="background:#ede9fe; color:#6d28d9;">DYNAMIC</span>
+                </div>
+                <div class="node-icon-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                    <polyline points="2 17 12 22 22 17"/>
+                    <polyline points="2 12 12 17 22 12"/>
+                  </svg>
+                </div>
+                <div class="node-title">全息画像计算</div>
+                <div class="node-desc">六维素养雷达图实时评估，支撑标签认证与底层证据链深度穿透。</div>
+                <div class="node-footer-meta">
+                  <span>画像时效</span>
+                  <strong class="font-mono text-dark">毫秒级</strong>
+                </div>
+              </div>
+
+              <!-- Step 4 -->
+              <div class="pipeline-node" style="--node-color: #dc2626; --node-bg: #fef2f2;">
+                <div class="node-top-meta">
+                  <span class="node-step-tag">STEP 04</span>
+                  <span class="node-status-pill badge-danger">MONITOR</span>
+                </div>
+                <div class="node-icon-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                </div>
+                <div class="node-title">学业风险研判</div>
+                <div class="node-desc">红橙黄分级研判引擎，超时督导告警，辅导员认领与干预措施留痕。</div>
+                <div class="node-footer-meta">
+                  <span>闭环解决率</span>
+                  <strong class="font-mono text-success">91.7%</strong>
+                </div>
+              </div>
+
+              <!-- Step 5 -->
+              <div class="pipeline-node" style="--node-color: #d97706; --node-bg: #fffbeb;">
+                <div class="node-top-meta">
+                  <span class="node-step-tag">STEP 05</span>
+                  <span class="node-status-pill badge-warning">AI MATCH</span>
+                </div>
+                <div class="node-icon-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                  </svg>
+                </div>
+                <div class="node-title">职业发展匹配</div>
+                <div class="node-desc">行业岗位胜任力模型智能对齐，优势诊断、能力差距提示与意向反馈。</div>
+                <div class="node-footer-meta">
+                  <span>匹配模型</span>
+                  <strong class="font-mono text-dark">8类岗位群</strong>
+                </div>
+              </div>
+
+              <!-- Step 6 -->
+              <div class="pipeline-node" style="--node-color: #0284c7; --node-bg: #f0f9ff;">
+                <div class="node-top-meta">
+                  <span class="node-step-tag">STEP 06</span>
+                  <span class="node-status-pill" style="background:#e0f2fe; color:#0369a1;">SECURED</span>
+                </div>
+                <div class="node-icon-box">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                </div>
+                <div class="node-title">安全开放网关</div>
+                <div class="node-desc">符合《个保法》动态脱敏规范，Open API 鉴权分发与调用安全审计。</div>
+                <div class="node-footer-meta">
+                  <span>网关延时</span>
+                  <strong class="font-mono text-dark">&lt; 15ms</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================================================ -->
+        <!-- 2. 学生全息成长画像 (Student 360° Profile)                       -->
+        <!-- ================================================================ -->
+        <section id="tab-student-profile" class="tab-pane">
+          <div class="pro-card mb-4">
+            <div class="d-flex justify-between align-center flex-wrap gap-2">
+              <div>
+                <div class="card-title-lg">
+                  <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                  <span>学生 360° 全息能力画像中心</span>
+                </div>
+                <div class="card-subtitle">支持检索切换在册学生，综合展示六维能力素养、发展演进轨迹与标签可溯源凭证</div>
+              </div>
+              <div class="d-flex align-center gap-2">
+                <span class="text-xs font-bold text-slate-600">检索学生档案：</span>
+                <select id="profile-student-select" class="form-select" style="min-width: 260px; font-weight: 600;">
+                  <!-- 动态填充 -->
+                </select>
+                <button class="btn btn-sm btn-primary" onclick="platformApp.exportStudentReport()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                  </svg>
+                  <span>导出画像档案</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="student-profile-grid">
+            <!-- 左侧学生基础档案 -->
+            <div>
+              <div class="student-hero-card mb-4">
+                <div class="student-header">
+                  <div class="student-avatar-wrap">生</div>
+                  <div class="student-identity">
+                    <h3 id="prof-name">张伟</h3>
+                    <div class="student-sub-info" id="prof-id">学号: 2021001</div>
+                    <div class="mt-2 d-flex gap-1">
+                      <span class="badge badge-primary text-xs" id="prof-class">计科2101</span>
+                      <span class="badge badge-slate text-xs" id="prof-major">计算机科学与技术</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="student-kpi-grid">
+                  <div class="kpi-cell">
+                    <div class="kpi-lbl">加权综合成绩</div>
+                    <div class="kpi-val text-primary" id="prof-score">58.4</div>
+                  </div>
+                  <div class="kpi-cell">
+                    <div class="kpi-lbl">不及格门数</div>
+                    <div class="kpi-val text-danger" id="prof-failed">3 门</div>
+                  </div>
+                  <div class="kpi-cell">
+                    <div class="kpi-lbl">培养方案学分达成</div>
+                    <div class="kpi-val" id="prof-credit">52%</div>
+                  </div>
+                  <div class="kpi-cell">
+                    <div class="kpi-lbl">教学出勤率</div>
+                    <div class="kpi-val" id="prof-attendance">72%</div>
+                  </div>
+                </div>
+
+                <div style="font-size: 12.5px; border-top: 1px solid var(--border-light); padding-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+                  <div class="d-flex justify-between">
+                    <span class="text-muted d-flex align-center gap-1">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                      身份证件 (脱敏保护):
+                    </span>
+                    <span class="font-mono text-dark font-bold" id="prof-idcard">130102********0012</span>
+                  </div>
+                  <div class="d-flex justify-between">
+                    <span class="text-muted d-flex align-center gap-1">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                      联系手机 (脱敏保护):
+                    </span>
+                    <span class="font-mono text-dark font-bold" id="prof-phone">138****8001</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 认证能力标签云 -->
+              <div class="pro-card mb-4">
+                <div class="card-header-bar">
+                  <div class="card-title-lg">
+                    <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                      <line x1="7" y1="7" x2="7.01" y2="7"/>
+                    </svg>
+                    <span>认证能力标签 (点击回溯口径与依据)</span>
+                  </div>
+                </div>
+                <div id="prof-tags-container" class="tag-cloud-container">
+                  <!-- 动态注入标签 -->
+                </div>
+              </div>
+
+              <!-- 重点修读课程 -->
+              <div class="pro-card">
+                <div class="card-header-bar">
+                  <div class="card-title-lg">
+                    <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                    </svg>
+                    <span>重点课程考核与成绩清单</span>
+                  </div>
+                </div>
+                <div id="prof-courses-list" style="display: flex; flex-direction: column; gap: 4px;">
+                  <!-- 动态注入课程 -->
+                </div>
+              </div>
+            </div>
+
+            <!-- 右侧核心图表 -->
+            <div>
+              <div class="pro-card mb-4">
+                <div class="card-header-bar">
+                  <div class="card-title-lg">
+                    <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                    </svg>
+                    <span>六维能力素养雷达图 (与院系标杆对照)</span>
+                  </div>
+                  <div class="card-subtitle">灰色虚线：计算机专业年级均值</div>
+                </div>
+                <canvas id="chart-student-radar" height="290" style="width: 100%;"></canvas>
+              </div>
+
+              <div class="pro-card">
+                <div class="card-header-bar">
+                  <div class="card-title-lg">
+                    <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                    </svg>
+                    <span>历学期加权平均成绩演进轨迹</span>
+                  </div>
+                  <div class="card-subtitle">近三个学期学业走势平滑曲线</div>
+                </div>
+                <canvas id="chart-student-trend" height="210" style="width: 100%;"></canvas>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================================================ -->
+        <!-- 3. 学业风险预警与干预中心 (Academic Alerts)                      -->
+        <!-- ================================================================ -->
+        <section id="tab-academic-alerts" class="tab-pane">
+          <div class="pro-card mb-4" style="border-left: 4px solid var(--danger);">
+            <div class="d-flex justify-between align-center flex-wrap gap-2">
+              <div>
+                <div class="card-title-lg text-danger">
+                  <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--danger);">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                  <span>学业风险预警与帮扶处置中心</span>
+                </div>
+                <div class="card-subtitle">
+                  支持 <code>待认领 (Open) ➔ 跟进中 (Claimed) ➔ 已闭环 (Closed)</code> 全流程闭环流转，超48小时未处置标红告警，结案强制留痕干预措施。
+                </div>
+              </div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-secondary" onclick="platformApp.openRuleConfigModal()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                  </svg>
+                  <span>规则引擎配置</span>
+                </button>
+                <button class="btn btn-primary" onclick="platformApp.scanAndGenerateAlerts()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                  </svg>
+                  <span>执行规则全量研判</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 筛选工具栏 -->
+          <div class="filter-toolbar">
+            <div class="filter-left-pills">
+              <span class="text-xs text-muted font-bold">班级快速筛选:</span>
+              <button class="filter-pill-btn active" data-class="all">全部班级</button>
+              <button class="filter-pill-btn" data-class="计科2101">计科2101</button>
+              <button class="filter-pill-btn" data-class="计科2102">计科2102</button>
+              <button class="filter-pill-btn" data-class="软工2101">软工2101</button>
+            </div>
+
+            <div class="d-flex align-center gap-2">
+              <!-- 关键字检索输入框 -->
+              <input id="alert-search-input" class="form-input" placeholder="输入学号/姓名/规则检索..." style="width: 200px; padding: 6px 10px;">
+              <select id="alert-filter-class" class="form-select" style="display: none;">
+                <option value="all">全部班级</option>
+                <option value="计科2101">计科2101</option>
+                <option value="计科2102">计科2102</option>
+                <option value="软工2101">软工2101</option>
+              </select>
+              <select id="alert-filter-level" class="form-select" style="width: auto;">
+                <option value="all">预警等级 (全部)</option>
+                <option value="red">红色最高预警</option>
+                <option value="orange">橙色重点预警</option>
+                <option value="yellow">黄色关注预警</option>
+              </select>
+              <select id="alert-filter-status" class="form-select" style="width: auto;">
+                <option value="all">处置状态 (全部)</option>
+                <option value="open">待认领 (open)</option>
+                <option value="claimed">跟进中 (claimed)</option>
+                <option value="closed">已闭环 (closed)</option>
+                <option value="not_applicable">不适用 (N/A)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 预警表格 (Pro Table) -->
+          <div class="pro-table-wrap">
+            <table class="pro-table">
+              <thead>
+                <tr>
+                  <th style="width: 70px;">编号</th>
+                  <th style="width: 140px;">学生姓名</th>
+                  <th style="width: 110px;">行政班级</th>
+                  <th>触发预警规则</th>
+                  <th style="width: 110px;">风险等级</th>
+                  <th style="width: 120px;">触发指标状态</th>
+                  <th style="width: 120px;">处置状态</th>
+                  <th style="width: 150px;">预警时间</th>
+                  <th style="width: 140px;">业务操作</th>
+                </tr>
+              </thead>
+              <tbody id="alerts-table-body">
+                <!-- 动态填充预警记录 -->
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ================================================================ -->
+        <!-- 4. 职业发展与智能推荐 (Career Guidance)                          -->
+        <!-- ================================================================ -->
+        <section id="tab-career-rec" class="tab-pane">
+          <div class="pro-card mb-4">
+            <div class="card-title-lg">
+              <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+              </svg>
+              <span>职业发展智能推荐 · 岗位画像精准匹配</span>
+            </div>
+            <div class="card-subtitle">
+              基于选定学生的六维全息画像，智能对齐行业权威岗位胜任力模型，输出适配度诊断与技能短板提升建议
+            </div>
+          </div>
+
+          <div class="career-match-grid" id="career-jobs-list">
+            <!-- 动态注入推荐岗位 -->
+          </div>
+        </section>
+
+        <!-- ================================================================ -->
+        <!-- 5. 数据资产与主数据治理 (Data Governance)                       -->
+        <!-- ================================================================ -->
+        <section id="tab-data-governance" class="tab-pane">
+          <div class="pro-card mb-4">
+            <div class="card-title-lg">
+              <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+              </svg>
+              <span>数据资产编目与「一人一档」治理中心</span>
+            </div>
+            <div class="card-subtitle">
+              整合教务、科研、学工三方数据源，完成主数据归并、清洗与指标口径配置，消除“一人多号、一数多源”
+            </div>
+          </div>
+
+          <!-- 3类数据源运行矩阵 -->
+          <div class="assets-kpi-row">
+            <div class="datasource-card">
+              <div class="datasource-info">
+                <div class="datasource-icon-wrap">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                  </svg>
+                </div>
+                <div>
+                  <div class="font-bold text-dark">教务成绩综合系统</div>
+                  <div class="text-xs text-muted mt-1">
+                    <span class="datasource-status-dot status-green"></span>接口正常 · 延迟 12ms · 增量同步 4,820条
+                  </div>
+                </div>
+              </div>
+              <button class="btn btn-xs btn-outline" onclick="platformApp.runIngestionTask('教务成绩综合系统')">测试同步</button>
+            </div>
+
+            <div class="datasource-card">
+              <div class="datasource-info">
+                <div class="datasource-icon-wrap">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="8" r="7"/>
+                    <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+                  </svg>
+                </div>
+                <div>
+                  <div class="font-bold text-dark">科研与学术竞赛平台</div>
+                  <div class="text-xs text-muted mt-1">
+                    <span class="datasource-status-dot status-green"></span>接口正常 · 成果核验归档 · 增量 312条
+                  </div>
+                </div>
+              </div>
+              <button class="btn btn-xs btn-outline" onclick="platformApp.runIngestionTask('科研与学术竞赛平台')">测试同步</button>
+            </div>
+
+            <div class="datasource-card">
+              <div class="datasource-info">
+                <div class="datasource-icon-wrap">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                  </svg>
+                </div>
+                <div>
+                  <div class="font-bold text-dark">学工与日常实践系统</div>
+                  <div class="text-xs text-muted mt-1">
+                    <span class="datasource-status-dot status-green"></span>接口正常 · 考勤流水接入 · 增量 12,400条
+                  </div>
+                </div>
+              </div>
+              <button class="btn btn-xs btn-outline" onclick="platformApp.runIngestionTask('学工实践系统')">测试同步</button>
+            </div>
+          </div>
+
+          <!-- 一人一档主数据表 -->
+          <div class="pro-card">
+            <div class="card-header-bar">
+              <div class="card-title-lg">
+                <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                </svg>
+                <span>学生主数据编目清单 (一人一档已融合归并)</span>
+              </div>
+              <span class="badge badge-success">数据质量得分 99.4 分</span>
+            </div>
+            <div class="pro-table-wrap">
+              <table class="pro-table">
+                <thead>
+                  <tr>
+                    <th>唯一学号</th>
+                    <th>学生姓名</th>
+                    <th>身份证件号 (隐私保护)</th>
+                    <th>行政班级</th>
+                    <th>所属专业</th>
+                    <th>治理归并状态</th>
+                    <th>综合指标评定</th>
+                    <th>数据源关联通道</th>
+                  </tr>
+                </thead>
+                <tbody id="master-students-table-body">
+                  <!-- 动态注入主数据 -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================================================================ -->
+        <!-- 6. 数据开放与安全网关 (Data Services & Security)                 -->
+        <!-- ================================================================ -->
+        <section id="tab-data-services" class="tab-pane">
+          <div class="pro-card mb-4">
+            <div class="card-title-lg">
+              <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <span>数据服务开放网关与隐私安全规范</span>
+            </div>
+            <div class="card-subtitle">
+              向校内部门与外部授权应用提供标准 RESTful Open API，内置 QPS 限流、Token 令牌鉴权与《个人信息保护法》动态脱敏
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;" class="mb-4">
+            <!-- API 目录 -->
+            <div>
+              <div class="pro-card">
+                <div class="card-header-bar">
+                  <div class="card-title-lg">
+                    <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="2" y1="12" x2="22" y2="12"/>
+                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                    <span>发布的数据服务 API 目录 (支持在线交互测试)</span>
+                  </div>
+                  <span class="badge badge-primary">已发布 4 个接口</span>
+                </div>
+                <div id="services-catalog-cards">
+                  <!-- 动态注入服务卡片 -->
+                </div>
+              </div>
+            </div>
+
+            <!-- 脱敏合规验证 -->
+            <div>
+              <div class="pro-card">
+                <div class="card-header-bar">
+                  <div class="card-title-lg">
+                    <svg class="title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    <span>《个人信息保护法》动态脱敏合规沙箱</span>
+                  </div>
+                  <button class="btn btn-xs btn-secondary" onclick="platformApp.toggleDesensitize()">切换当前脱敏模式</button>
+                </div>
+                <p class="text-xs text-muted mb-3">
+                  依据国家《个人信息保护法》与高校数据管理规范，学生身份证、手机号与姓名在开放 API 与普通视图中必须进行动态掩码。
+                </p>
+                <div class="pro-table-wrap">
+                  <table class="pro-table">
+                    <thead>
+                      <tr>
+                        <th>敏感字段</th>
+                        <th>明文原始值</th>
+                        <th>脱敏输出展示</th>
+                        <th>脱敏算法规范</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><strong>身份证件号</strong></td>
+                        <td><code>130102200301150012</code></td>
+                        <td><strong class="text-success font-mono">130102********0012</strong></td>
+                        <td>保留前6后4，中间8位掩码</td>
+                      </tr>
+                      <tr>
+                        <td><strong>手机联系方式</strong></td>
+                        <td><code>13800138001</code></td>
+                        <td><strong class="text-success font-mono">138****8001</strong></td>
+                        <td>保留前3后4，中间4位掩码</td>
+                      </tr>
+                      <tr>
+                        <td><strong>真实姓名</strong></td>
+                        <td><code>张伟</code></td>
+                        <td><strong class="text-success font-mono">张*</strong></td>
+                        <td>保留姓氏，名字脱敏</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- 全局底部 (Clean Footer) -->
+      <footer class="clean-footer">
+        <div>
+          高校学生成长与职业发展数据中台 · 智慧校园大数据协同中心
+        </div>
+        <div class="footer-link-list">
+          <a href="#dashboard">数据驾驶舱</a>
+          <a href="#student-profile">全息画像</a>
+          <a href="#academic-alerts">学业预警</a>
+          <a href="#career-rec">职业推荐</a>
+          <a href="#data-governance">数据资产</a>
+          <a href="#data-services">服务开放</a>
+        </div>
+      </footer>
+    </main>
+
+  </div>
+
+  <!-- 通用模态弹窗系统 -->
+  <div id="app-modal" class="modal-backdrop">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 id="app-modal-title" class="modal-title">弹窗详情</h3>
+        <button class="modal-close-btn" onclick="platformApp.closeModal()">&times;</button>
+      </div>
+      <div id="app-modal-body" class="modal-body">
+        <!-- 动态注入内容 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast 通知容器 -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- 纯业务逻辑层脚本 (按依赖严格顺序加载) -->
   <script src="/app.js" defer></script>
 </body>
 </html>
+
