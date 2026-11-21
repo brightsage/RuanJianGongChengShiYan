@@ -32,10 +32,13 @@ if(WIN32)
     target_include_directories(platform_mysql INTERFACE "${PLATFORM_MYSQL_ROOT}/include")
     target_link_libraries(platform_mysql INTERFACE "${PLATFORM_MYSQL_ROOT}/lib/libmysql.lib")
 else()
-    find_path(MYSQL_INCLUDE_DIR mysql.h)
-    find_library(MYSQL_LIBRARY NAMES mysqlclient mariadb)
+    # Debian/Ubuntu 把 mysql.h 装在 include/mysql（或 include/mariadb）下，
+    # find_path 不会递归子目录，必须显式给 PATH_SUFFIXES。
+    find_path(MYSQL_INCLUDE_DIR NAMES mysql.h PATH_SUFFIXES mysql mariadb mysql/mariadb)
+    find_library(MYSQL_LIBRARY NAMES mysqlclient mariadb libmysqlclient)
     if(NOT MYSQL_INCLUDE_DIR OR NOT MYSQL_LIBRARY)
-        message(FATAL_ERROR "MySQL client headers/library not found (install libmysqlclient-dev or mariadb-devel).")
+        message(FATAL_ERROR
+            "MySQL client headers/library not found (install libmysqlclient-dev or mariadb-devel).")
     endif()
     add_library(platform_mysql INTERFACE)
     target_include_directories(platform_mysql INTERFACE "${MYSQL_INCLUDE_DIR}")
